@@ -1,17 +1,20 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const AGENT_SERVER = process.env.AGENT_SERVER_URL ?? "http://localhost:8001";
 
 /**
  * POST /api/run
  * Proxies to the local Python agent server (alcatraz.serve on port 8001).
- * Starts the research agent demo in the background — all output goes to dashboard.
+ * Accepts optional ?demo=hr|research — passed to the Python server as JSON body.
+ * Starts the selected demo agent in the background — all output goes to dashboard.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const demo = req.nextUrl.searchParams.get("demo") ?? "research";
   try {
     const res = await fetch(`${AGENT_SERVER}/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ demo }),
       // short timeout — the server responds immediately, agent runs in background
       signal: AbortSignal.timeout(4000),
     });

@@ -413,7 +413,10 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
 }
 
 // ── Run Button ────────────────────────────────────────────────────────────────
-function RunButton({ isRunning, onRun }: { isRunning: boolean; onRun: () => Promise<string | null> }) {
+function RunButton({ isRunning, onRun, label = 'Run Agent', idleClass = 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm' }: {
+  isRunning: boolean; onRun: () => Promise<string | null>;
+  label?: string; idleClass?: string;
+}) {
   const [error, setError] = useState('');
   const handleClick = async () => {
     if (isRunning) return;
@@ -424,11 +427,11 @@ function RunButton({ isRunning, onRun }: { isRunning: boolean; onRun: () => Prom
   return (
     <div className="flex flex-col items-end gap-1">
       <button onClick={handleClick} disabled={isRunning}
-        className={cn('flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all', isRunning ? 'bg-amber-100 text-amber-700 cursor-not-allowed' : error ? 'bg-red-100 text-red-700' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm')}>
+        className={cn('flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all', isRunning ? 'bg-amber-100 text-amber-700 cursor-not-allowed' : error ? 'bg-red-100 text-red-700' : idleClass)}>
         {isRunning ? (
           <><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-600" /></span>Running…</>
         ) : (
-          <><Icon.Play /> Run Agent</>
+          <><Icon.Play /> {label}</>
         )}
       </button>
       {error && <p className="text-[10px] text-red-500 max-w-[220px] text-right leading-4">{error}</p>}
@@ -935,6 +938,25 @@ export default function DashboardClient() {
     } catch { return 'Agent server offline — run: python -m alcatraz.serve'; }
   }, [sessions.length]);
 
+  const handleRunHR = useCallback(async (): Promise<string | null> => {
+    try {
+      const res  = await fetch('/api/run?demo=hr', { method: 'POST' });
+      const data = await res.json() as { status?: string; error?: string; hint?: string };
+      if (!res.ok) return data.hint ?? data.error ?? 'Failed to start HR pipeline';
+      const startedAt = new Date().toISOString();
+      if (!sessionEpoch.current) {
+        sessionEpoch.current = startedAt;
+        sessionStorage.setItem('alc_epoch', startedAt);
+      }
+      const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
+      setSessions(prev => [...prev, newSession]);
+      setActiveSessionId(newSession.id);
+      setRunStatus(prev => ({ ...prev, running: true, started_at: startedAt }));
+      prevRunning.current = true;
+      return null;
+    } catch { return 'Agent server offline — run: python -m alcatraz.serve'; }
+  }, [sessions.length]);
+
   const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
     await fetch(`/api/hitl/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
     setHitlPending(prev => prev.filter(r => r.id !== id));
@@ -971,7 +993,15 @@ export default function DashboardClient() {
             Onboarding
           </Link>
           <div className="w-px h-5 bg-slate-200" />
-          <RunButton isRunning={runStatus.running} onRun={handleRun} />
+          <div className="flex items-start gap-2">
+            <RunButton isRunning={runStatus.running} onRun={handleRun} />
+            <RunButton
+              isRunning={runStatus.running}
+              onRun={handleRunHR}
+              label="HR Pipeline"
+              idleClass="bg-violet-600 hover:bg-violet-700 text-white shadow-sm"
+            />
+          </div>
         </div>
       </motion.header>
 
