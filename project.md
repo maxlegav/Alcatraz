@@ -129,13 +129,13 @@ alcatraz/
 │       └── README.md
 │
 ├── apps/
-│   └── dashboard/            # Next.js app
+│   └── web/            # Next.js app
 │       ├── app/
 │       │   ├── page.tsx      # dashboard principal
 │       │   ├── scan/         # page rapport red team
-│       │   └── api/
-│       │       ├── log/      # POST /api/log
-│       │       └── scan/     # POST /api/scan
+│   └── api/
+│       ├── log/      # POST /api/log
+│       └── scan/     # POST /api/scan
 │       └── ...
 │
 ├── demo/
