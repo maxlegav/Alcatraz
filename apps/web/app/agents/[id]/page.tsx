@@ -92,7 +92,7 @@ export default async function AgentDetailPage({
       <header className="border-b border-slate-200 bg-white px-6 py-4">
         <div className="mx-auto flex max-w-5xl items-start justify-between gap-4">
           <div>
-            <Link href="/" className="text-sm text-slate-400 hover:text-slate-600">
+            <Link href="/dashboard" className="text-sm text-slate-400 hover:text-slate-600">
               ← Dashboard
             </Link>
             <h1 className="mt-1 text-xl font-semibold text-slate-900">{agent.name}</h1>
