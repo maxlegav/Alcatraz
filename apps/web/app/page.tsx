@@ -1,27 +1,22 @@
 import React from 'react';
-import Link from 'next/link';
+import { Navbar } from './_components/landing/Navbar';
+import { HeroSection } from './_components/landing/HeroSection';
+import { HowItWorksSection } from './_components/landing/HowItWorksSection';
+import { PlugAndPlaySection } from './_components/landing/PlugAndPlaySection';
+import { CTASection } from './_components/landing/CTASection';
+import { Footer } from './_components/landing/Footer';
 
 export default function Page() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
-      <div className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-          Alcatraz
-        </p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">
-          Landing page coming soon
-        </h1>
-        <p className="mt-3 text-sm leading-6 text-slate-500">
-          This root route is a temporary placeholder while the marketing site is
-          still being built.
-        </p>
-        <Link
-          href="/dashboard"
-          className="mt-8 inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700"
-        >
-          Open dashboard
-        </Link>
+    <main className="min-h-screen bg-[#fcfcfd] text-slate-900">
+      <div className="mx-auto max-w-7xl px-6 pt-6 sm:px-8 lg:px-10">
+        <Navbar />
       </div>
+      <HeroSection />
+      <HowItWorksSection />
+      <PlugAndPlaySection />
+      <CTASection />
+      <Footer />
     </main>
   );
 }

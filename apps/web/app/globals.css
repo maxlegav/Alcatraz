@@ -96,7 +96,7 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-geist), system-ui, sans-serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), "Courier New", monospace;
 }
 
@@ -125,7 +125,7 @@
 body {
   background-color: var(--color-background);
   color: var(--color-on-surface-variant);
-  font-family: var(--font-geist), system-ui, sans-serif;
+  font-family: var(--font-inter), system-ui, sans-serif;
 }
 
 /* ── Card surfaces from the design ──────────────────────────────────────────── */
@@ -157,6 +157,276 @@ body {
 
 .animate-slide-in {
   animation: slide-in 0.18s ease-out forwards;
+}
+
+@keyframes phase-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-phase-in {
+  animation: phase-in 0.38s ease-out forwards;
+}
+
+@keyframes action-scene {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes scan-ping {
+  0% { opacity: 0.55; transform: scale(0.72); }
+  85%, 100% { opacity: 0; transform: scale(1.12); }
+}
+
+@keyframes scan-card {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes rule-line {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes log-row {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scene-copy {
+  0% { opacity: 0; transform: translateY(12px); filter: blur(8px); }
+  100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes scene-asset {
+  0% { opacity: 0; transform: scale(1.035); filter: blur(18px) saturate(1.25); }
+  42% { opacity: 1; filter: blur(0) saturate(1.1); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0) saturate(1); }
+}
+
+@keyframes morph-sweep {
+  0% { opacity: 0; transform: translateX(-120%) skewX(-10deg) scaleX(0.6); }
+  24% { opacity: 0.92; transform: translateX(-28%) skewX(-10deg) scaleX(1.18); }
+  58% { opacity: 0.68; transform: translateX(36%) skewX(-10deg) scaleX(1.05); }
+  100% { opacity: 0; transform: translateX(130%) skewX(-10deg) scaleX(0.7); }
+}
+
+@keyframes morph-thread {
+  0% { opacity: 0; transform: translateX(-18%) scaleX(0.3); }
+  30% { opacity: 0.9; transform: translateX(0) scaleX(1); }
+  100% { opacity: 0; transform: translateX(18%) scaleX(0.35); }
+}
+
+@keyframes attack-agent {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  42% { transform: translate3d(6px, -5px, 0) scale(1.025); }
+  66% { transform: translate3d(-4px, 4px, 0) scale(0.99); }
+}
+
+@keyframes attack-beam {
+  0% { stroke-dashoffset: 520; opacity: 0; }
+  18% { opacity: 0.1; }
+  46% { opacity: 0.9; }
+  100% { stroke-dashoffset: 0; opacity: 0.18; }
+}
+
+@keyframes scan-core-ring {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 18px 34px rgba(244, 63, 94, 0.14)); }
+  50% { transform: scale(1.04); filter: drop-shadow(0 22px 46px rgba(244, 63, 94, 0.22)); }
+}
+
+@keyframes scan-core-pulse {
+  0% { opacity: 0.28; transform: scale(0.82); }
+  80%, 100% { opacity: 0; transform: scale(1.24); }
+}
+
+@keyframes attack-stat {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes morph-panel {
+  0% { opacity: 0; transform: translateX(-34px) scale(0.96); filter: blur(10px); }
+  100% { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+}
+
+@keyframes morph-code {
+  0% { opacity: 0; transform: translateX(34px) scale(0.96); filter: blur(10px); }
+  100% { opacity: 1; transform: translateX(0) scale(1); filter: blur(0); }
+}
+
+@keyframes summary-chip {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-action-scene {
+  animation: action-scene 0.42s ease-out forwards;
+}
+
+.animate-scan-card,
+.animate-rule-line,
+.animate-log-row {
+  opacity: 0;
+  animation-duration: 0.36s;
+  animation-fill-mode: forwards;
+  animation-timing-function: ease-out;
+}
+
+.animate-scan-card {
+  animation-name: scan-card;
+}
+
+.animate-rule-line {
+  animation-name: rule-line;
+}
+
+.animate-log-row {
+  animation-name: log-row;
+}
+
+.scene-copy {
+  animation: scene-copy 0.48s ease-out both;
+}
+
+.scene-asset {
+  animation: scene-asset 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cinematic-stage {
+  border-radius: 0.5rem;
+  isolation: isolate;
+}
+
+.morph-transition {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  overflow: hidden;
+  border-radius: 0.5rem;
+}
+
+.morph-transition > span:first-child {
+  position: absolute;
+  inset: -18% 18%;
+  background: linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.16), rgba(255, 255, 255, 0.9), rgba(244, 63, 94, 0.16), transparent);
+  filter: blur(18px);
+  animation: morph-sweep 1.05s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+.morph-transition > span:nth-child(2),
+.morph-transition > span:nth-child(3) {
+  position: absolute;
+  left: 11%;
+  right: 11%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.74), rgba(244, 63, 94, 0.62), transparent);
+  transform-origin: center;
+  animation: morph-thread 0.9s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+.morph-transition > span:nth-child(2) {
+  top: 42%;
+}
+
+.morph-transition > span:nth-child(3) {
+  top: 58%;
+  animation-delay: 0.08s;
+}
+
+.morph-transition-1 > span:first-child {
+  background: linear-gradient(90deg, transparent, rgba(244, 63, 94, 0.22), rgba(255, 255, 255, 0.94), rgba(37, 99, 235, 0.22), transparent);
+}
+
+.morph-transition-2 > span:first-child {
+  background: linear-gradient(90deg, transparent, rgba(37, 99, 235, 0.18), rgba(255, 255, 255, 0.94), rgba(16, 185, 129, 0.18), transparent);
+}
+
+.attack-agent {
+  animation: attack-agent 2.4s ease-in-out infinite;
+}
+
+.attack-beam {
+  fill: none;
+  stroke: #f43f5e;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 18 16;
+  stroke-dashoffset: 520;
+  animation: attack-beam 2s ease-in-out infinite;
+}
+
+.attack-path-b { animation-delay: 0.2s; }
+.attack-path-c { animation-delay: 0.4s; }
+.attack-path-d { animation-delay: 0.6s; }
+.attack-path-e { animation-delay: 0.8s; }
+
+.scan-core-ring,
+.scan-core-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.scan-core-ring {
+  stroke: #fecdd3;
+  stroke-width: 1.5;
+  animation: scan-core-ring 2.2s ease-in-out infinite;
+}
+
+.scan-core-pulse {
+  fill: none;
+  stroke: #fb7185;
+  stroke-width: 1.5;
+  animation: scan-core-pulse 1.8s ease-out infinite;
+}
+
+.attack-stat,
+.summary-chip,
+.rule-line,
+.log-row,
+.log-header,
+.morph-panel,
+.morph-code {
+  opacity: 0;
+  animation-fill-mode: forwards;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.attack-stat {
+  animation-name: attack-stat;
+  animation-duration: 0.42s;
+}
+
+.morph-panel {
+  animation-name: morph-panel;
+  animation-duration: 0.62s;
+}
+
+.morph-code {
+  animation-name: morph-code;
+  animation-duration: 0.62s;
+  animation-delay: 0.12s;
+}
+
+.summary-chip {
+  animation-name: summary-chip;
+  animation-duration: 0.38s;
+}
+
+.rule-line {
+  animation-name: rule-line;
+  animation-duration: 0.38s;
+}
+
+.log-header {
+  animation-name: scan-card;
+  animation-duration: 0.42s;
+}
+
+.log-row {
+  animation-name: log-row;
+  animation-duration: 0.34s;
 }
 
 @media (prefers-reduced-motion: reduce) {
