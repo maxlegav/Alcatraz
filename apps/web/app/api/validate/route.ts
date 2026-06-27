@@ -45,10 +45,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { agent_id, agent_version, tool_name, payload } = body as {
+  const { agent_id, agent_version, tool_name, severity, payload } = body as {
     agent_id?: string;
     agent_version?: number;
     tool_name?: string;
+    severity?: string | null;
     payload?: Record<string, unknown> | null;
   };
 
@@ -119,6 +120,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Log the request
+  const VALID_SEVERITIES = ["critical", "high", "medium", "low"];
   const { data: request, error: insertErr } = await supabaseAdmin
     .from("requests")
     .insert({
@@ -126,6 +128,7 @@ export async function POST(req: NextRequest) {
       agent_version: version,
       tool_name,
       status,
+      severity: severity && VALID_SEVERITIES.includes(severity) ? severity : null,
       payload: payload ?? null,
     })
     .select()

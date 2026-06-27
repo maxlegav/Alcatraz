@@ -24,9 +24,10 @@ RULES = {
 }
 
 alcatraz.init(
-    api_key=os.getenv("ALCATRAZ_AGENT_KEY", "demo-key"),
+    api_key=os.getenv("ALCATRAZ_API_KEY", "demo-key"),
     rules=RULES,
     alcatraz_url=os.getenv("ALCATRAZ_API_URL"),
+    agent_id=os.getenv("ALCATRAZ_AGENT_ID"),
 )
 
 from langchain_anthropic import ChatAnthropic

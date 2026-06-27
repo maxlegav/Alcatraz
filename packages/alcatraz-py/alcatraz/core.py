@@ -8,22 +8,25 @@ _session_always_allow: set = set()
 _hitl_lock = threading.Lock()
 
 
-def init(api_key: str, rules: dict = None, alcatraz_url: str = None) -> None:
+def init(api_key: str, rules: dict = None, alcatraz_url: str = None, agent_id: str = None) -> None:
     """
     Initialize Alcatraz runtime protection.
 
     Args:
-        api_key:      Your Alcatraz API key (from the dashboard).
-        rules:        Security policy, e.g. {"DENY": ["bash_executor"], "ALLOW": [...]}
+        api_key:      Your Alcatraz API key (from the dashboard / api_keys table).
+        rules:        Local security policy, e.g. {"DENY": ["bash_executor"], "ALLOW": [...]}
         alcatraz_url: Override the API base URL (default: ALCATRAZ_API_URL env var).
+        agent_id:     Agent UUID from the dashboard. Required to send logs to /api/validate.
+                      If omitted, local enforcement still works but events are not persisted.
     """
     from .monitor import AlcatrazMonitor
 
     _config["api_key"] = api_key
     _config["rules"] = rules or {}
+    _config["agent_id"] = agent_id
     if alcatraz_url:
         _config["alcatraz_url"] = alcatraz_url
-    _config["callbacks"] = [AlcatrazMonitor(api_key=api_key, alcatraz_url=alcatraz_url)]
+    _config["callbacks"] = [AlcatrazMonitor(api_key=api_key, alcatraz_url=alcatraz_url, agent_id=agent_id)]
 
     _patch_langchain()
     _patch_openai()
@@ -102,6 +105,7 @@ def _patch_langchain() -> None:
                     severity=severity,
                     payload={"input": str(tool_input)[:300]},
                     alcatraz_url=_config.get("alcatraz_url"),
+                    agent_id=_config.get("agent_id"),
                 )
                 from langchain_core.messages import ToolMessage
                 return ToolMessage(
@@ -121,6 +125,7 @@ def _patch_langchain() -> None:
                     severity=severity,
                     payload={"input": str(tool_input)[:300]},
                     alcatraz_url=_config.get("alcatraz_url"),
+                    agent_id=_config.get("agent_id"),
                 )
                 approved = _hitl_approve(tool_name, str(tool_input)[:200])
                 if not approved:
@@ -140,6 +145,7 @@ def _patch_langchain() -> None:
                     severity=severity,
                     payload={"input": str(tool_input)[:300]},
                     alcatraz_url=_config.get("alcatraz_url"),
+                    agent_id=_config.get("agent_id"),
                 )
                 return original_run(self, tool_input, *args, **kwargs)
 
@@ -151,6 +157,7 @@ def _patch_langchain() -> None:
                     severity=severity,
                     payload={"input": str(tool_input)[:300]},
                     alcatraz_url=_config.get("alcatraz_url"),
+                    agent_id=_config.get("agent_id"),
                 )
                 return original_run(self, tool_input, *args, **kwargs)
 
@@ -183,6 +190,7 @@ def _patch_openai() -> None:
                                 status="ALLOWED" if decision == "ALLOW" else "BLOCKED",
                                 severity=_infer_severity(name),
                                 alcatraz_url=_config.get("alcatraz_url"),
+                                agent_id=_config.get("agent_id"),
                             )
                             if decision == "DENY":
                                 raise PermissionError(

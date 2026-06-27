@@ -67,6 +67,12 @@ export async function GET() {
       lastActive,
       latestInsight: buildInsightSummary(latestInsight ?? null, previousInsight ?? null),
     };
+  }).sort((a, b) => {
+    // Most recently active first; agents with no activity go last
+    if (!a.lastActive && !b.lastActive) return 0;
+    if (!a.lastActive) return 1;
+    if (!b.lastActive) return -1;
+    return new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime();
   });
 
   return NextResponse.json({ agents: withStats });
