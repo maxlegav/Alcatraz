@@ -6,27 +6,26 @@ type AgentsResponse = { agents?: AgentStat[] };
 type RequestsResponse = { requests?: FeedEntry[] };
 
 export async function loadDashboardSnapshot(fetchImpl: FetchLike = fetch) {
-  const [agentsRes, requestsRes] = await Promise.all([
-    fetchImpl('/api/agents'),
-    fetchImpl('/api/requests?limit=50'),
-  ]);
+  const agentsRes = await fetchImpl('/api/agents');
 
   if (!agentsRes.ok) {
     throw new Error('Failed to load dashboard agents');
   }
 
-  if (!requestsRes.ok) {
-    throw new Error('Failed to load dashboard requests');
-  }
-
   const agentsJson = (await agentsRes.json()) as AgentsResponse;
-  const requestsJson = (await requestsRes.json()) as RequestsResponse;
 
-  const agentStats = agentsJson.agents ?? [];
-  const feed = requestsJson.requests ?? [];
+  // Start all stats at zero — only accumulate from the current live session
+  const agentStats: AgentStat[] = (agentsJson.agents ?? []).map((agent) => ({
+    ...agent,
+    totalCalls: 0,
+    blockedCalls: 0,
+    lastActive: null,
+    latestInsight: null,
+  }));
+
   const agentNameMap = Object.fromEntries(agentStats.map((agent) => [agent.id, agent.name]));
 
-  return { agentStats, feed, agentNameMap };
+  return { agentStats, feed: [] as FeedEntry[], agentNameMap };
 }
 
 export const loadDashboardData = loadDashboardSnapshot;
