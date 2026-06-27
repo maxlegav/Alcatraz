@@ -1,584 +1,1035 @@
 'use client';
 
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase/client';
 import { formatTimeAgo, formatTime } from '@/lib/agent-status';
 import type { AgentStat, FeedEntry } from './types';
+import type { Guardrail } from '@/lib/supabase/types';
 import { loadDashboardData, upsertRealtimeAgentStats } from './dashboard-data';
 import AnalyzeButton from '../agents/[id]/AnalyzeButton';
 
-// ── Health ────────────────────────────────────────────────────────────────────
-type HealthTone = 'green' | 'amber' | 'red' | 'slate';
-type Health = { label: string; blockRate: number; tone: HealthTone };
+// ── Types ─────────────────────────────────────────────────────────────────────
+type HitlRequest = {
+  id: string; agent_id: string; tool_name: string; tool_input: string;
+  status: 'pending' | 'approved' | 'denied'; created_at: string;
+};
+type Session = { id: string; n: number; startedAt: string; endedAt?: string };
+type RunStatus = { online: boolean; running: boolean; agent_id?: string; started_at?: string };
+type RiskLevel = 'critical' | 'high' | 'medium' | 'low';
+type RiskInfo = { level: RiskLevel; reason: string; cvss: number };
 
-function deriveHealth(a: AgentStat): Health {
-  const blockRate = a.totalCalls > 0 ? (a.blockedCalls / a.totalCalls) * 100 : 0;
-  if (a.totalCalls === 0) return { label: 'Idle',     blockRate, tone: 'slate' };
-  if (blockRate > 10)     return { label: 'Critical', blockRate, tone: 'red'   };
-  if (blockRate > 3)      return { label: 'Elevated', blockRate, tone: 'amber' };
-  return                         { label: 'Healthy',  blockRate, tone: 'green' };
-}
+// Unified display entry — requests + HITL both rendered in the feed
+type DisplayStatus = 'ALLOWED' | 'BLOCKED' | 'REVIEW';
+type HitlDecision = 'pending' | 'approved' | 'denied';
+type DisplayEntry = {
+  id: string; agent_id: string; tool_name: string;
+  displayStatus: DisplayStatus;
+  severity: string | null; payload: Record<string, unknown> | null;
+  created_at: string;
+  isHitl?: boolean;
+  hitlDecision?: HitlDecision;
+};
 
-// ── Avatar color (deterministic from agent id) ────────────────────────────────
-const AVATAR_COLORS = [
-  'bg-blue-500', 'bg-violet-500', 'bg-emerald-500',
-  'bg-orange-500', 'bg-rose-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-teal-500',
-];
-function avatarColor(id: string) {
-  const code = id.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0);
-  return AVATAR_COLORS[code % AVATAR_COLORS.length];
-}
-
-// ── Payload hint extractor ────────────────────────────────────────────────────
-function extractHint(payload: Record<string, unknown> | null): string {
-  if (!payload) return '';
-  // Direct fields (simple schema)
-  const direct =
-    payload.command ?? payload.url ?? payload.path ??
-    payload.query   ?? payload.table ?? payload.key ?? payload.to;
-  if (direct) return String(direct);
-  // Nested under "input" (seed schema: { tool: '...', input: { ... } })
-  const input = payload.input as Record<string, unknown> | undefined;
-  if (input) {
-    const nested =
-      input.command ?? input.url  ?? input.path  ??
-      input.query   ?? input.target ?? input.to  ?? input.key;
-    if (nested) return String(nested);
+// ── Risk assessment ────────────────────────────────────────────────────────────
+function assessRisk(toolName: string, toolInput: string): RiskInfo {
+  const name  = toolName.toLowerCase();
+  const input = toolInput.toLowerCase();
+  if (['bash', 'exec', 'shell', 'system', 'subprocess', 'popen'].some(k => name.includes(k))) {
+    return { level: 'critical', reason: 'Code execution — arbitrary command injection possible', cvss: 9.8 };
   }
-  return '';
+  if (['delete', 'drop', 'truncate', 'rm ', 'remove'].some(k => name.includes(k) || input.includes(k))) {
+    return { level: 'high', reason: 'Destructive operation — irreversible data loss risk', cvss: 8.1 };
+  }
+  if (['database', 'query', 'sql', 'db_'].some(k => name.includes(k))) {
+    return { level: 'high', reason: 'Database access — sensitive data exposure risk', cvss: 7.5 };
+  }
+  if (['send', 'email', 'report', 'upload', 'post', 'webhook', 'notify'].some(k => name.includes(k))) {
+    return { level: 'medium', reason: 'External data transfer — potential data exfiltration', cvss: 5.3 };
+  }
+  return { level: 'low', reason: 'Standard read-only operation', cvss: 2.1 };
+}
+
+const RISK_STYLE: Record<RiskLevel, { badge: string; bg: string; border: string; text: string }> = {
+  critical: { badge: 'bg-red-600 text-white',          bg: 'bg-red-950/60',   border: 'border-red-800',   text: 'text-red-400'    },
+  high:     { badge: 'bg-orange-500 text-white',        bg: 'bg-orange-950/60',border: 'border-orange-800',text: 'text-orange-400' },
+  medium:   { badge: 'bg-amber-500 text-white',         bg: 'bg-amber-950/60', border: 'border-amber-800', text: 'text-amber-400'  },
+  low:      { badge: 'bg-slate-600 text-slate-200',     bg: 'bg-slate-900',    border: 'border-slate-700', text: 'text-slate-400'  },
+};
+
+function cvssRange(severity: string | null): string {
+  if (severity === 'critical') return '9.0–10.0';
+  if (severity === 'high')     return '7.0–8.9';
+  if (severity === 'medium')   return '4.0–6.9';
+  return '0.1–3.9';
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const Icon = {
-  Activity: () => (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-    </svg>
-  ),
-  Shield: () => (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  ),
-  Percent: () => (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="19" y1="5" x2="5" y2="19" />
-      <circle cx="6.5" cy="6.5" r="2.5" />
-      <circle cx="17.5" cy="17.5" r="2.5" />
-    </svg>
-  ),
-  Users: () => (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-  ),
+  Activity: () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>,
+  Shield:   () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>,
+  Percent:  () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="5" x2="5" y2="19" /><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" /></svg>,
+  Users:    () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>,
+  Play:     () => <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>,
+  Check:    () => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>,
+  X:        () => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>,
+  Clock:    () => <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>,
+  ChevronDown: () => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>,
+  Lock:     () => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>,
+  Plus:     () => <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>,
+  Close:    () => <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>,
+  Report:   () => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>,
 };
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
 type Accent = 'blue' | 'red' | 'amber' | 'green';
-
 const ACCENT: Record<Accent, { bar: string; value: string; icon: string }> = {
   blue:  { bar: 'bg-blue-600',    value: 'text-blue-700',    icon: 'bg-blue-50 text-blue-600'       },
   red:   { bar: 'bg-red-500',     value: 'text-red-700',     icon: 'bg-red-50 text-red-500'         },
   amber: { bar: 'bg-amber-500',   value: 'text-amber-700',   icon: 'bg-amber-50 text-amber-500'     },
   green: { bar: 'bg-emerald-500', value: 'text-emerald-700', icon: 'bg-emerald-50 text-emerald-500' },
 };
-
-function KpiCard({ label, value, sub, accent, icon, delay }: {
-  label: string; value: string; sub?: string;
-  accent: Accent; icon: ReactNode; delay: number;
-}) {
+function KpiCard({ label, value, sub, accent, icon, delay }: { label: string; value: string; sub?: string; accent: Accent; icon: ReactNode; delay: number }) {
   const c = ACCENT[accent];
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-      className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
-    >
+    <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+      className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <div className={cn('h-1 w-10 rounded-full mb-5', c.bar)} />
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-slate-500 mb-1.5">{label}</p>
-          <p className={cn('text-[40px] font-bold leading-none tracking-tight', c.value)}>
-            {value}
-          </p>
+          <p className={cn('text-[40px] font-bold leading-none tracking-tight', c.value)}>{value}</p>
         </div>
-        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', c.icon)}>
-          {icon}
-        </div>
+        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', c.icon)}>{icon}</div>
       </div>
       {sub && <p className="text-sm text-slate-400 mt-4">{sub}</p>}
     </motion.div>
   );
 }
 
-// ── Log row ───────────────────────────────────────────────────────────────────
-function LogRow({ entry, agentName }: { entry: FeedEntry; agentName: string }) {
-  const blocked = entry.status === 'BLOCKED';
-  const hint = extractHint(entry.payload);
+// ── Session tabs ──────────────────────────────────────────────────────────────
+function formatRunLabel(s: Session): string {
+  const d = new Date(s.startedAt);
+  const dd  = String(d.getDate()).padStart(2, '0');
+  const mon = d.toLocaleString('en-US', { month: 'short' });
+  const hh  = String(d.getHours()).padStart(2, '0');
+  const mm  = String(d.getMinutes()).padStart(2, '0');
+  return `Run ${dd}-${mon} ${hh}:${mm}`;
+}
 
+function SessionTabs({ sessions, activeId, onSelect }: { sessions: Session[]; activeId: string; onSelect: (id: string) => void }) {
   return (
-    <div className={cn(
-      'flex items-center gap-4 px-5 py-3.5 border-b border-slate-100 transition-colors text-sm',
-      blocked ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-slate-50',
-    )}>
-      <span className={cn(
-        'h-2 w-2 rounded-full shrink-0',
-        blocked ? 'bg-red-500' : 'bg-emerald-400',
-      )} />
-
-      <span className="shrink-0 text-xs font-medium text-slate-600 bg-slate-100 rounded-md px-2 py-1 w-36 truncate">
-        {agentName}
-      </span>
-
-      <span className={cn(
-        'font-mono text-sm shrink-0 w-32 truncate',
-        blocked ? 'text-red-700 font-semibold' : 'text-slate-700',
-      )}>
-        {entry.tool_name}
-      </span>
-
-      <span className={cn(
-        'shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full',
-        blocked ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600',
-      )}>
-        {blocked ? 'Blocked' : 'Allowed'}
-      </span>
-
-      {entry.severity && (
-        <span className={cn(
-          'shrink-0 text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full',
-          entry.severity === 'critical' && 'bg-red-100 text-red-700',
-          entry.severity === 'high'     && 'bg-orange-100 text-orange-700',
-          entry.severity === 'medium'   && 'bg-amber-100 text-amber-700',
-          entry.severity === 'low'      && 'bg-slate-100 text-slate-500',
-        )}>
-          {entry.severity}
-        </span>
-      )}
-
-      {hint && (
-        <span className="text-xs text-slate-400 font-mono truncate flex-1 min-w-0">
-          {hint}
-        </span>
-      )}
-
-      <span className="text-xs text-slate-400 shrink-0 ml-auto font-mono tabular-nums">
-        {formatTime(entry.created_at)}
-      </span>
+    <div className="flex items-center gap-1.5 px-5 py-3 border-b border-slate-100 overflow-x-auto shrink-0">
+      <button onClick={() => onSelect('all')}
+        className={cn('px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0', activeId === 'all' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700')}>
+        All runs
+      </button>
+      {sessions.map(s => (
+        <button key={s.id} onClick={() => onSelect(s.id)}
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0', activeId === s.id ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700')}>
+          {formatRunLabel(s)}
+          {!s.endedAt && (
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+            </span>
+          )}
+          {s.endedAt && (
+            <Link
+              href={`/report?from=${encodeURIComponent(s.startedAt)}&to=${encodeURIComponent(s.endedAt)}`}
+              onClick={e => e.stopPropagation()}
+              className={cn('ml-1 flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold uppercase transition-colors', activeId === s.id ? 'bg-blue-500 text-white hover:bg-blue-400' : 'bg-slate-200 text-slate-500 hover:bg-slate-300')}
+            >
+              <Icon.Report /> Report
+            </Link>
+          )}
+        </button>
+      ))}
     </div>
   );
 }
 
-// ── Agent card ────────────────────────────────────────────────────────────────
-const HEALTH_BADGE: Record<HealthTone, string> = {
-  green: 'bg-emerald-100 text-emerald-700',
-  amber: 'bg-amber-100 text-amber-700',
-  red:   'bg-red-100 text-red-700',
-  slate: 'bg-slate-100 text-slate-500',
+// ── Log row + detail modal ────────────────────────────────────────────────────
+const SECURITY_EVENTS = new Set(['prompt_injection', 'sensitive_data_leak']);
+const SEVERITY_STYLE: Record<string, string> = {
+  critical: 'bg-red-100 text-red-700', high: 'bg-orange-100 text-orange-700',
+  medium:   'bg-amber-100 text-amber-700', low: 'bg-slate-100 text-slate-500',
 };
-const HEALTH_BAR: Record<HealthTone, string> = {
-  green: 'bg-emerald-500',
-  amber: 'bg-amber-500',
-  red:   'bg-red-500',
-  slate: 'bg-slate-300',
-};
-const HEALTH_TEXT: Record<HealthTone, string> = {
-  green: 'text-emerald-600',
-  amber: 'text-amber-600',
-  red:   'text-red-600',
-  slate: 'text-slate-400',
-};
+function extractHint(payload: Record<string, unknown> | null): string {
+  if (!payload) return '';
+  const direct = payload.command ?? payload.url ?? payload.path ?? payload.query ?? payload.table ?? payload.key ?? payload.to;
+  if (direct) return String(direct);
+  const input = payload.input as Record<string, unknown> | undefined;
+  if (input) { const nested = input.command ?? input.url ?? input.path ?? input.query ?? input.target ?? input.to ?? input.key; if (nested) return String(nested); }
+  return '';
+}
 
-const SUGGESTION_LABEL: Record<string, string> = {
-  prompt_injection: 'Prompt fix',
-  tool_redesign: 'Tool redesign',
-  data_provision: 'Data source',
-  other: 'Manual review',
-};
+function LogRow({ entry, agentName, onClick }: { entry: DisplayEntry; agentName: string; onClick: () => void }) {
+  const blocked = entry.displayStatus === 'BLOCKED';
+  const review  = entry.displayStatus === 'REVIEW';
+  const isSecEv = SECURITY_EVENTS.has(entry.tool_name);
+  const hint    = extractHint(entry.payload);
+  return (
+    <div
+      onClick={onClick}
+      className={cn(
+        'grid items-center gap-0 px-5 py-3 border-b border-slate-100/80 text-xs transition-colors cursor-pointer select-none',
+        'grid-cols-[8px_1fr_80px_90px_56px]',
+        isSecEv ? 'bg-red-50/80 hover:bg-red-50 border-l-[3px] border-l-red-500' :
+        review  ? 'bg-amber-50/60 hover:bg-amber-50/90' :
+        blocked ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50',
+      )}
+    >
+      <span className={cn('h-2 w-2 rounded-full shrink-0', isSecEv ? 'bg-red-600 animate-pulse' : review ? 'bg-amber-400 animate-pulse' : blocked ? 'bg-red-400' : 'bg-emerald-400')} />
+      <div className="min-w-0 px-3">
+        <div className="flex items-center gap-2">
+          <span className={cn('font-mono font-semibold truncate', isSecEv ? 'text-red-700' : review ? 'text-amber-700' : blocked ? 'text-slate-800' : 'text-slate-700')}>{entry.tool_name}</span>
+          {isSecEv && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-red-600 text-white">Injection</span>}
+          {review   && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500 text-white">⏳ HITL</span>}
+          {entry.isHitl && entry.hitlDecision === 'approved' && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">✓ HITL approved</span>}
+          {entry.isHitl && entry.hitlDecision === 'denied'   && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-red-700 text-white">✗ HITL denied</span>}
+        </div>
+        {hint && <span className="text-[10px] text-slate-400 truncate block mt-0.5 font-mono">{hint}</span>}
+      </div>
+      <span className="text-[10px] text-slate-400 truncate">{agentName}</span>
+      {/* Status badge */}
+      <span className={cn('text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full text-center',
+        review  ? 'bg-amber-100 text-amber-700' :
+        blocked ? 'bg-red-100 text-red-700' :
+                  'bg-emerald-100 text-emerald-700'
+      )}>
+        {entry.displayStatus}
+      </span>
+      <span className="text-[10px] text-slate-400 tabular-nums text-right font-mono">{formatTime(entry.created_at)}</span>
+    </div>
+  );
+}
 
-function AgentCard({ agent, now, delay }: { agent: AgentStat; now: number; delay: number }) {
-  const h = deriveHealth(agent);
-  const barW = `${Math.min(h.blockRate * 6, 100)}%`;
-  const topPattern = agent.latestInsight?.top_pattern ?? null;
-  const recurringCount = agent.latestInsight?.recurring_tool_names.length ?? 0;
+function LogEntryModal({ entry, agentName, onClose }: { entry: DisplayEntry; agentName: string; onClose: () => void }) {
+  const blocked  = entry.displayStatus === 'BLOCKED';
+  const review   = entry.displayStatus === 'REVIEW';
+  const isSecEv  = SECURITY_EVENTS.has(entry.tool_name);
+  const cvss     = cvssRange(entry.severity);
+  const hint     = extractHint(entry.payload);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden"
+      >
+        {/* Header */}
+        <div className={cn('px-5 py-4 border-b flex items-start justify-between gap-3', isSecEv ? 'bg-red-50 border-red-200' : review ? 'bg-amber-50 border-amber-200' : blocked ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-200')}>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', review ? 'bg-amber-100 text-amber-700' : blocked ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700')}>{entry.displayStatus}</span>
+              {entry.severity && <span className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', SEVERITY_STYLE[entry.severity])}>{entry.severity}</span>}
+              {isSecEv && <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-600 text-white">Injection</span>}
+            </div>
+            <p className="font-mono font-bold text-slate-800 text-base">{entry.tool_name}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{agentName} · {formatTime(entry.created_at)}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 mt-1">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* CVSS */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-center">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">CVSS Range</p>
+              <p className="text-sm font-bold text-slate-800">{cvss}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-center">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Severity</p>
+              <p className="text-sm font-bold text-slate-800 capitalize">{entry.severity ?? 'N/A'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-center">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Decision</p>
+              <p className={cn('text-sm font-bold', blocked ? 'text-red-600' : review ? 'text-amber-600' : 'text-emerald-600')}>{entry.displayStatus}</p>
+            </div>
+          </div>
+
+          {hint && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Payload hint</p>
+              <p className="font-mono text-sm text-slate-700 bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 break-all">{hint}</p>
+            </div>
+          )}
+
+          {entry.payload && Object.keys(entry.payload).length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Full payload</p>
+              <pre className="text-[11px] font-mono text-slate-600 bg-slate-50 rounded-lg border border-slate-200 px-3 py-2 overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap">
+                {JSON.stringify(entry.payload, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {blocked && (
+            <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-red-500 mb-1">Block reason</p>
+              <p className="text-xs text-red-700">{isSecEv ? 'Prompt injection detected in tool input — auto-blocked by security engine.' : 'Tool matched a DENY rule configured for this agent.'}</p>
+            </div>
+          )}
+          {review && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">Pending human review</p>
+              <p className="text-xs text-amber-800">This tool is in the REVIEW list — a human must approve or deny before execution proceeds.</p>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ── Report ready toast ────────────────────────────────────────────────────────
+function ReportReadyToast({ href, onClose }: { href: string; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 12000);
+    return () => clearTimeout(t);
+  }, [onClose]);
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4"
+      initial={{ opacity: 0, y: 24, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 16, scale: 0.96 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-slate-900 text-white rounded-2xl border border-slate-700 shadow-2xl px-5 py-3.5 min-w-[340px]"
     >
-      <div className="flex items-start gap-3 mb-3.5">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className={cn(
-            'w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0',
-            avatarColor(agent.id),
-          )}>
-            {agent.name[0].toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <Link
-              href={`/agents/${agent.id}`}
-              className="block truncate text-sm font-semibold text-slate-800 hover:text-blue-700"
-            >
-              {agent.name}
-            </Link>
-            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              <span className={cn(
-                'inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
-                HEALTH_BADGE[h.tone],
-              )}>
-                {h.label}
-              </span>
-              {typeof agent.version === 'number' && (
-                <span className="inline-block rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-                  v{agent.version}
-                </span>
-              )}
-              {recurringCount > 0 && (
-                <span className="inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                  {recurringCount} recurring
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-        <AnalyzeButton agentId={agent.id} />
+      <div className="w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center shrink-0">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
       </div>
-
-      <div className="mb-3">
-        <div className="flex justify-between items-center mb-1.5">
-          <span className="text-xs text-slate-500">Block rate</span>
-          <span className={cn('text-xs font-bold', HEALTH_TEXT[h.tone])}>
-            {h.blockRate.toFixed(1)}%
-          </span>
-        </div>
-        <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-          <motion.div
-            className={cn('h-full rounded-full', HEALTH_BAR[h.tone])}
-            initial={{ width: 0 }}
-            animate={{ width: barW }}
-            transition={{ delay: delay + 0.2, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-          />
-        </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold">Run complete — report ready</p>
+        <p className="text-xs text-slate-400 mt-0.5">Security report generated for this session</p>
       </div>
-
-      {agent.latestInsight ? (
-        <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Latest Insight
-            </p>
-            <span className="text-[10px] text-slate-400">
-              {new Date(agent.latestInsight.created_at).toLocaleDateString()}
-            </span>
-          </div>
-
-          {topPattern ? (
-            <>
-              <div className="mt-2 flex items-center gap-2">
-                <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                  {topPattern.tool_name}
-                </span>
-                <span className="text-[10px] font-medium text-slate-500">
-                  {topPattern.blocked_count} blocked
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  {SUGGESTION_LABEL[topPattern.suggestion_type] ?? 'Review'}
-                </span>
-              </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500 line-clamp-3">
-                {topPattern.suggestion}
-              </p>
-            </>
-          ) : (
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              {agent.latestInsight.summary ?? 'No blocked patterns were found in the latest analysis window.'}
-            </p>
-          )}
-
-          <Link
-            href={`/agents/${agent.id}`}
-            className="mt-2 inline-flex text-xs font-medium text-blue-600 hover:text-blue-700"
-          >
-            View analysis
-          </Link>
-        </div>
-      ) : (
-        <div className="mb-3 rounded-2xl border border-dashed border-slate-200 p-3 text-xs text-slate-400">
-          No analysis yet. Run the first scan from this card.
-        </div>
-      )}
-
-      <div className="flex justify-between text-xs text-slate-400">
-        <span>{agent.totalCalls.toLocaleString()} calls · {agent.blockedCalls} blocked</span>
-        <span>{formatTimeAgo(agent.lastActive, now)}</span>
+      <div className="flex items-center gap-2 shrink-0">
+        <Link href={href} className="text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors whitespace-nowrap">
+          View Report →
+        </Link>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-300">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+        </button>
       </div>
     </motion.div>
   );
 }
 
+// ── HITL Panel ────────────────────────────────────────────────────────────────
+function HitlPanel({ requests, agentNameMap, onDecide }: {
+  requests: HitlRequest[]; agentNameMap: Record<string, string>;
+  onDecide: (id: string, status: 'approved' | 'denied') => Promise<void>;
+}) {
+  const [deciding, setDeciding] = useState<Record<string, boolean>>({});
+  const decide = async (id: string, status: 'approved' | 'denied') => {
+    setDeciding(p => ({ ...p, [id]: true }));
+    await onDecide(id, status);
+    setDeciding(p => ({ ...p, [id]: false }));
+  };
+  if (requests.length === 0) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 40, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.96 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      className="fixed bottom-6 right-6 z-50 w-[440px] bg-white rounded-2xl border-2 border-amber-400 shadow-2xl overflow-hidden"
+    >
+      <div className="bg-amber-50 border-b border-amber-200 px-5 py-3 flex items-center gap-3">
+        <span className="relative flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500" />
+        </span>
+        <div>
+          <p className="text-sm font-bold text-amber-900">Human Approval Required</p>
+          <p className="text-xs text-amber-700">{requests.length} action{requests.length > 1 ? 's' : ''} waiting for review</p>
+        </div>
+      </div>
+      <div className="max-h-[480px] overflow-y-auto divide-y divide-slate-100">
+        {requests.map(req => {
+          const risk = assessRisk(req.tool_name, req.tool_input);
+          const rs   = RISK_STYLE[risk.level];
+          return (
+            <div key={req.id} className="px-5 py-4">
+              {/* Risk badge + tool name */}
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className={cn('text-[10px] font-bold uppercase px-2 py-0.5 rounded-full', rs.badge)}>
+                      {risk.level} risk
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 rounded px-1.5 py-0.5 truncate max-w-[120px]">
+                      {agentNameMap[req.agent_id] ?? 'Agent'}
+                    </span>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                      <Icon.Clock /> {formatTimeAgo(req.created_at, Date.now())}
+                    </span>
+                  </div>
+                  <p className="font-mono text-sm font-bold text-slate-800">{req.tool_name}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{risk.reason}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-[10px] text-slate-400">CVSS</p>
+                  <p className={cn('text-sm font-bold tabular-nums', rs.text)}>{risk.cvss.toFixed(1)}</p>
+                </div>
+              </div>
+
+              {req.tool_input && (
+                <div className={cn('mb-3 rounded-xl border px-3 py-2.5', rs.bg, rs.border)}>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Tool Input</p>
+                  <p className="font-mono text-xs text-slate-700 break-all line-clamp-4">{req.tool_input}</p>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button onClick={() => decide(req.id, 'approved')} disabled={deciding[req.id]}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold py-2.5 transition-colors">
+                  <Icon.Check /> Approve
+                </button>
+                <button onClick={() => decide(req.id, 'denied')} disabled={deciding[req.id]}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 text-sm font-semibold py-2.5 transition-colors">
+                  <Icon.X /> Deny
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Run Button ────────────────────────────────────────────────────────────────
+function RunButton({ isRunning, onRun }: { isRunning: boolean; onRun: () => Promise<string | null> }) {
+  const [error, setError] = useState('');
+  const handleClick = async () => {
+    if (isRunning) return;
+    setError('');
+    const err = await onRun();
+    if (err) { setError(err); setTimeout(() => setError(''), 6000); }
+  };
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button onClick={handleClick} disabled={isRunning}
+        className={cn('flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all', isRunning ? 'bg-amber-100 text-amber-700 cursor-not-allowed' : error ? 'bg-red-100 text-red-700' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm')}>
+        {isRunning ? (
+          <><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-600" /></span>Running…</>
+        ) : (
+          <><Icon.Play /> Run Agent</>
+        )}
+      </button>
+      {error && <p className="text-[10px] text-red-500 max-w-[220px] text-right leading-4">{error}</p>}
+    </div>
+  );
+}
+
+// ── Project Panel ─────────────────────────────────────────────────────────────
+function ProjectPanel({ running, agentName, agentId, startedAt, sessionEventCount, sessionBlockedCount }: {
+  running: boolean; agentName: string | null; agentId: string | null;
+  startedAt: string | null; sessionEventCount: number; sessionBlockedCount: number;
+}) {
+  const [elapsed, setElapsed] = useState('');
+  useEffect(() => {
+    if (!startedAt) { setElapsed(''); return; }
+    const update = () => {
+      const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+      setElapsed(secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`);
+    };
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, [startedAt]);
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className={cn('rounded-2xl border shadow-sm p-4 transition-colors duration-500', running ? 'bg-blue-950 border-blue-700' : 'bg-white border-slate-200')}>
+      <div className="flex items-center justify-between mb-2">
+        <span className={cn('text-[10px] font-bold uppercase tracking-wider', running ? 'text-blue-300' : 'text-slate-400')}>Active Session</span>
+        <div className="flex items-center gap-1.5">
+          {running ? (
+            <><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" /></span><span className="text-[10px] font-semibold text-blue-300">RUNNING</span></>
+          ) : (
+            <><span className="h-2 w-2 rounded-full bg-slate-300" /><span className="text-[10px] font-semibold text-slate-400">IDLE</span></>
+          )}
+        </div>
+      </div>
+      {agentName ? (
+        <p className={cn('text-sm font-semibold truncate mb-3', running ? 'text-white' : 'text-slate-800')}>{agentName}</p>
+      ) : (
+        <p className={cn('text-sm truncate mb-3 italic', running ? 'text-blue-300' : 'text-slate-400')}>No agent selected</p>
+      )}
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {[
+          { label: 'Elapsed', value: running && elapsed ? elapsed : '—' },
+          { label: 'Events',  value: sessionEventCount > 0 ? String(sessionEventCount) : '—' },
+          { label: 'Blocked', value: sessionEventCount > 0 ? String(sessionBlockedCount) : '—' },
+        ].map(({ label, value }) => (
+          <div key={label} className={cn('rounded-xl p-2 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
+            <p className={cn('text-[9px] font-medium mb-0.5', running ? 'text-blue-400' : 'text-slate-400')}>{label}</p>
+            <p className={cn('text-xs font-bold tabular-nums', running ? 'text-white' : 'text-slate-500')}>{value}</p>
+          </div>
+        ))}
+      </div>
+      {agentId && <Link href={`/agents/${agentId}`} className={cn('text-[11px] font-medium hover:underline', running ? 'text-blue-400' : 'text-blue-600')}>View agent details →</Link>}
+    </motion.div>
+  );
+}
+
+// ── Guardrails Panel ──────────────────────────────────────────────────────────
+const PANEL_TABS = ['Guardrails', 'HITL'] as const;
+type PanelTab = typeof PANEL_TABS[number];
+
+function EditableChips({
+  items, color, onAdd, onRemove,
+}: {
+  items: string[]; color: 'red' | 'amber' | 'emerald';
+  onAdd: (v: string) => void; onRemove: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const chip: Record<string, string> = {
+    red: 'bg-red-50 border border-red-200 text-red-700', amber: 'bg-amber-50 border border-amber-200 text-amber-700', emerald: 'bg-emerald-50 border border-emerald-200 text-emerald-700',
+  };
+  const input: Record<string, string> = {
+    red: 'focus:ring-red-300', amber: 'focus:ring-amber-300', emerald: 'focus:ring-emerald-300',
+  };
+  const submit = () => {
+    const v = draft.trim();
+    if (v && !items.includes(v)) onAdd(v);
+    setDraft('');
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5 items-center">
+      {items.map(item => (
+        <span key={item} className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold', chip[color])}>
+          {item}
+          <button onClick={() => onRemove(item)} className="opacity-50 hover:opacity-100 ml-0.5">
+            <svg viewBox="0 0 24 24" width="8" height="8" fill="none" stroke="currentColor" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft} onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+        onBlur={submit}
+        placeholder="+ add"
+        className={cn('text-[11px] font-mono border border-dashed border-slate-300 rounded-md px-2 py-0.5 bg-transparent text-slate-500 placeholder-slate-400 focus:outline-none focus:ring-1 w-14', input[color])}
+      />
+    </div>
+  );
+}
+
+function GuardrailsPanel({ agentId }: { agentId: string | null }) {
+  const [tab, setTab]           = useState<PanelTab>('Guardrails');
+  const [guardrail, setGuardrail] = useState<Guardrail | null>(null);
+  const [deny, setDeny]         = useState<string[]>([]);
+  const [allow, setAllow]       = useState<string[]>([]);
+  const [review, setReview]     = useState<string[]>([]);
+  const [rateLimit, setRateLimit] = useState<number>(10);
+  const [loading, setLoading]   = useState(false);
+  const [saved, setSaved]       = useState(false);
+
+  useEffect(() => {
+    if (!agentId) return;
+    setLoading(true);
+    fetch(`/api/guardrails?agent_id=${agentId}`)
+      .then(r => r.json())
+      .then((g: { guardrails?: Guardrail[] }) => {
+        const gr = g.guardrails?.[0] ?? null;
+        setGuardrail(gr);
+        setDeny(gr?.deny_patterns  ?? []);
+        setAllow(gr?.allow_patterns ?? []);
+        setReview([]);
+        setRateLimit(gr?.max_calls_per_min ?? 10);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [agentId]);
+
+  const handleSave = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
+
+      {/* Tabs */}
+      <div className="px-4 pt-3 border-b border-slate-100 flex items-center gap-1 shrink-0">
+        {PANEL_TABS.map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={cn('px-3 py-1.5 rounded-t-lg text-xs font-semibold transition-colors', tab === t ? 'bg-white border-x border-t border-slate-200 text-slate-800 -mb-px' : 'text-slate-400 hover:text-slate-600')}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 min-h-0">
+        {tab === 'Guardrails' ? (
+          loading ? (
+            <div className="text-center py-8 text-xs text-slate-400">Loading…</div>
+          ) : !agentId ? (
+            <div className="text-center py-8 text-xs text-slate-400">Select an agent to view guardrails</div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider">DENY</p>
+                  <p className="text-[9px] text-slate-400">Auto-blocked</p>
+                </div>
+                <EditableChips items={deny} color="red" onAdd={v => setDeny(p => [...p, v])} onRemove={v => setDeny(p => p.filter(x => x !== v))} />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">REVIEW</p>
+                  <p className="text-[9px] text-slate-400">Requires HITL</p>
+                </div>
+                <EditableChips items={review} color="amber" onAdd={v => setReview(p => [...p, v])} onRemove={v => setReview(p => p.filter(x => x !== v))} />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">ALLOW</p>
+                  <p className="text-[9px] text-slate-400">Auto-permitted</p>
+                </div>
+                <EditableChips items={allow} color="emerald" onAdd={v => setAllow(p => [...p, v])} onRemove={v => setAllow(p => p.filter(x => x !== v))} />
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                <p className="text-xs text-slate-500">Rate limit</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number" value={rateLimit} min={1} max={1000}
+                    onChange={e => setRateLimit(Number(e.target.value))}
+                    className="w-14 text-xs font-bold text-slate-800 text-right bg-transparent border-b border-slate-300 focus:outline-none focus:border-blue-400"
+                  />
+                  <span className="text-xs text-slate-400">calls/min</span>
+                </div>
+              </div>
+
+              <button onClick={handleSave}
+                className={cn('w-full text-xs font-semibold py-2 rounded-xl border transition-colors', saved ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-100')}>
+                {saved ? '✓ Rules saved' : 'Save changes'}
+              </button>
+            </div>
+          )
+        ) : (
+          /* HITL tab */
+          <div className="space-y-4">
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-bold text-amber-800">Human-in-the-Loop</p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">Always enabled for this demo</p>
+                </div>
+                <div className="relative inline-flex h-5 w-9 rounded-full bg-amber-500 cursor-not-allowed opacity-80">
+                  <span className="inline-block h-4 w-4 m-0.5 translate-x-4 rounded-full bg-white shadow" />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">REVIEW tools trigger HITL</p>
+              {review.map(tool => (
+                <div key={tool} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                  <span className="font-mono text-xs text-slate-700 flex-1">{tool}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 bg-amber-100 rounded px-1.5 py-0.5">REVIEW</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5 space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Capabilities</p>
+              {[
+                { label: 'Approve / Deny actions', on: true },
+                { label: 'See full tool input',    on: true },
+                { label: 'Risk level + CVSS',      on: true },
+                { label: 'Authentication required',on: false },
+              ].map(({ label, on }) => (
+                <div key={label} className="flex items-center gap-2">
+                  <span className={cn('text-[9px] font-bold', on ? 'text-emerald-600' : 'text-slate-400')}>{on ? '✓' : '–'}</span>
+                  <span className={cn('text-[11px]', on ? 'text-slate-700' : 'text-slate-400')}>{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer: analyze button */}
+      {tab === 'Guardrails' && agentId && (
+        <div className="px-4 py-3 border-t border-slate-100 shrink-0">
+          <AnalyzeButton agentId={agentId} />
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── Agent selector ─────────────────────────────────────────────────────────────
+function AgentSelector({ agents, selectedId, onSelect }: { agents: AgentStat[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const selected = agents.find(a => a.id === selectedId);
+  if (agents.length === 0) return null;
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors text-sm">
+        <span className="h-2 w-2 rounded-full bg-blue-500" />
+        <span className="text-slate-700 font-medium">{selected?.name ?? 'Select agent'}</span>
+        <Icon.ChevronDown />
+      </button>
+      {open && (
+        <div className="absolute top-full mt-1 left-0 z-20 w-56 rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+          {agents.map(a => (
+            <button key={a.id} onClick={() => { onSelect(a.id); setOpen(false); }}
+              className={cn('w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2', a.id === selectedId ? 'text-blue-600 font-semibold' : 'text-slate-700')}>
+              <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', a.id === selectedId ? 'bg-blue-500' : 'bg-slate-300')} />
+              <span className="truncate">{a.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Dashboard client ──────────────────────────────────────────────────────────
 export default function DashboardClient() {
-  const [now, setNow] = useState(() => Date.now());
-  const [feed, setFeed] = useState<FeedEntry[]>([]);
-  const [agentStats, setAgentStats] = useState<AgentStat[]>([]);
-  const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [now, setNow]                       = useState(() => Date.now());
+  const [feed, setFeed]                     = useState<DisplayEntry[]>([]);
+  const [agentStats, setAgentStats]         = useState<AgentStat[]>([]);
+  const [agentNameMap, setAgentNameMap]     = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading]           = useState(true);
+  const [error, setError]                   = useState<string | null>(null);
+  const [hitlPending, setHitlPending]       = useState<HitlRequest[]>([]);
+  const [runStatus, setRunStatus]           = useState<RunStatus>({ online: false, running: false });
+  // Persist sessions + epoch across navigations (cleared only on onboarding reset)
+  const [sessions, setSessions] = useState<Session[]>(() => {
+    try { return JSON.parse(sessionStorage.getItem('alc_sessions') ?? '[]') as Session[]; } catch { return []; }
+  });
+  const [activeSessionId, setActiveSessionId] = useState<string>('all');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedEntry, setSelectedEntry]   = useState<DisplayEntry | null>(null);
+  const [reportToast, setReportToast]       = useState<{ href: string } | null>(null);
+  const prevRunning  = useRef(false);
+  // Epoch = timestamp of first Run click; only events after this are shown
+  const sessionEpoch = useRef<string | null>(sessionStorage.getItem('alc_epoch'));
 
+  // Derived stats
   const totalCalls   = agentStats.reduce((s, a) => s + a.totalCalls,   0);
   const totalBlocked = agentStats.reduce((s, a) => s + a.blockedCalls, 0);
   const blockRate    = totalCalls > 0 ? (totalBlocked / totalCalls) * 100 : 0;
-  const activeCount  = agentStats.filter(
-    a => a.lastActive && now - new Date(a.lastActive).getTime() < 300_000
-  ).length;
+  const activeCount  = agentStats.filter(a => a.lastActive && now - new Date(a.lastActive).getTime() < 300_000).length;
 
-  // Refresh relative timestamps every 30s
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
+  const currentSession = sessions.find(s => s.id === activeSessionId);
+  const sessionStartMs = currentSession ? new Date(currentSession.startedAt).getTime()
+    : (runStatus.started_at ? new Date(runStatus.started_at).getTime() : null);
+
+  const sessionFeed = useMemo(() => {
+    if (!sessionStartMs) return [];
+    return feed.filter(e => new Date(e.created_at).getTime() >= sessionStartMs);
+  }, [feed, sessionStartMs]);
+
+  const displayFeed = useMemo(() => {
+    if (activeSessionId === 'all') return feed;
+    const session = sessions.find(s => s.id === activeSessionId);
+    if (!session) return feed;
+    const start = new Date(session.startedAt).getTime();
+    const end   = session.endedAt ? new Date(session.endedAt).getTime() : Infinity;
+    return feed.filter(e => { const t = new Date(e.created_at).getTime(); return t >= start && t <= end; });
+  }, [feed, sessions, activeSessionId]);
+
+  // Helper: convert raw requests + hitl into DisplayEntry[]
+  const buildDisplayFeed = useCallback((
+    requests: Array<{ id: string; agent_id: string; tool_name: string; status: string; severity: string | null; payload: Record<string,unknown>|null; created_at: string }>,
+    hitlAll:  HitlRequest[],
+  ): DisplayEntry[] => {
+    const reqEntries: DisplayEntry[] = requests.map(r => ({
+      id: r.id, agent_id: r.agent_id, tool_name: r.tool_name,
+      displayStatus: r.status as DisplayStatus,
+      severity: r.severity, payload: r.payload, created_at: r.created_at,
+    }));
+    const hitlEntries: DisplayEntry[] = hitlAll.map(h => ({
+      id: `hitl-${h.id}`, agent_id: h.agent_id, tool_name: h.tool_name,
+      displayStatus: (h.status === 'pending' ? 'REVIEW' : h.status === 'approved' ? 'ALLOWED' : 'BLOCKED') as DisplayStatus,
+      severity: null, payload: { input: h.tool_input }, created_at: h.created_at,
+      isHitl: true, hitlDecision: h.status as HitlDecision,
+    }));
+    // Merge and sort newest first, deduplicated by id
+    const all = [...reqEntries, ...hitlEntries].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const seen = new Set<string>();
+    return all.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
   }, []);
 
-  // Bootstrap dashboard state from backend API routes
+  // Keep sessionStorage in sync
+  useEffect(() => {
+    sessionStorage.setItem('alc_sessions', JSON.stringify(sessions));
+  }, [sessions]);
+
+  useEffect(() => {
+    if (selectedAgentId === null && agentStats.length > 0) setSelectedAgentId(agentStats[0].id);
+  }, [agentStats, selectedAgentId]);
+
+  useEffect(() => { if (runStatus.agent_id) setSelectedAgentId(runStatus.agent_id); }, [runStatus.agent_id]);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
+
   useEffect(() => {
     let cancelled = false;
-
     async function bootstrap() {
       try {
-        const data = await loadDashboardData();
-        if (cancelled) {
-          return;
-        }
-
+        const [data, hitlRes] = await Promise.all([
+          loadDashboardData(),
+          fetch('/api/hitl').then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
+        ]);
+        if (cancelled) return;
         setAgentStats(data.agentStats);
         setAgentNameMap(data.agentNameMap);
-        setFeed(data.feed);
+        setFeed([]); // feed starts empty; populated by polling after first Run click
+        setHitlPending(hitlRes.hitl_requests ?? []);
         setError(null);
       } catch (err) {
-        if (cancelled) {
-          return;
-        }
-
-        setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load dashboard');
       } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        if (!cancelled) setIsLoading(false);
       }
     }
-
     void bootstrap();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // Supabase Realtime — subscribe to new requests
-  useEffect(() => {
-    const channel = supabase
-      .channel('dashboard-requests')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'requests' },
-        (payload) => {
-          const entry = payload.new as FeedEntry;
+  // Primary live feed: HTTP polling every 2 s
+  // (Realtime is unreliable due to RLS on anon key — polling is the source of truth)
+  const pollFeed = useCallback(async () => {
+    if (!sessionEpoch.current) return;
+    try {
+      const epoch = sessionEpoch.current;
+      const [reqRes, hitlRes, hitlAllRes] = await Promise.all([
+        fetch(`/api/requests?limit=500&since=${encodeURIComponent(epoch)}`).then(r => r.json()) as Promise<{ requests?: Array<{ id: string; agent_id: string; tool_name: string; status: string; severity: string|null; payload: Record<string,unknown>|null; created_at: string }> }>,
+        fetch('/api/hitl').then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
+        fetch(`/api/hitl?since=${encodeURIComponent(epoch)}`).then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
+      ]);
+      const requests = reqRes.requests ?? [];
+      const hitlPendingList = hitlRes.hitl_requests ?? [];
+      const hitlAll  = hitlAllRes.hitl_requests ?? [];
 
-          // Prepend to feed (keep max 50)
-          setFeed(prev => [entry, ...prev.slice(0, 49)]);
-          setAgentStats(prev => upsertRealtimeAgentStats(prev, entry));
-          setAgentNameMap(prev => {
-            if (prev[entry.agent_id]) {
-              return prev;
-            }
+      setHitlPending(hitlPendingList);
 
-            return {
-              ...prev,
-              [entry.agent_id]: entry.agent_id,
-            };
+      // Rebuild full feed from current session (requests + all HITL including decided)
+      const newFeed = buildDisplayFeed(requests, hitlAll);
+      setFeed(newFeed);
+
+      // Recompute agentStats from scratch (not incrementally) to avoid double-counting
+      setAgentStats(prev => {
+        // Build a stats map from the current full request list
+        const statsMap = new Map<string, { total: number; blocked: number; lastActive: string | null }>();
+        for (const r of requests) {
+          const cur = statsMap.get(r.agent_id) ?? { total: 0, blocked: 0, lastActive: null };
+          statsMap.set(r.agent_id, {
+            total:      cur.total + 1,
+            blocked:    cur.blocked + (r.status === 'BLOCKED' ? 1 : 0),
+            lastActive: r.created_at,
           });
-        },
-      )
-      .subscribe();
+        }
+        const knownIds = new Set(prev.map(a => a.id));
+        const updated = prev.map(agent => {
+          const s = statsMap.get(agent.id);
+          return s
+            ? { ...agent, totalCalls: s.total, blockedCalls: s.blocked, lastActive: s.lastActive }
+            : { ...agent, totalCalls: 0, blockedCalls: 0 };
+        });
+        // Agents seen in requests but not yet in the list
+        for (const [agentId, s] of statsMap) {
+          if (!knownIds.has(agentId)) {
+            updated.push({ id: agentId, name: agentId, totalCalls: s.total, blockedCalls: s.blocked, lastActive: s.lastActive, latestInsight: null });
+          }
+        }
+        return updated;
+      });
+      setAgentNameMap(prev => {
+        const next = { ...prev };
+        for (const r of requests) { if (!next[r.agent_id]) next[r.agent_id] = r.agent_id; }
+        return next;
+      });
+    } catch { /* ignore network errors */ }
+  }, [buildDisplayFeed]);
 
+  useEffect(() => {
+    // Immediate fetch on mount if we already have an epoch (returning from another page)
+    void pollFeed();
+    const interval = setInterval(pollFeed, 2000);
+    return () => clearInterval(interval);
+  }, [pollFeed]);
+
+  // Secondary: Realtime as bonus (best-effort, may be blocked by RLS)
+  useEffect(() => {
+    const channel = supabase.channel('dashboard-requests')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, () => {
+        // Realtime triggers an immediate poll refresh — no processing here
+        // (the interval above will pick it up within 2 s anyway)
+      })
+      .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
+
+  // Poll: run status + detect run completion
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      try {
+        const runRes = await fetch('/api/run').then(r => r.json()) as RunStatus;
+        setRunStatus(runRes);
+
+        if (prevRunning.current && !runRes.running) {
+          // Mark last session as ended + show toast
+          setSessions(prev => {
+            const updated = prev.map((s, i) =>
+              i === prev.length - 1 && !s.endedAt ? { ...s, endedAt: new Date().toISOString() } : s
+            );
+            const last = updated.filter(s => s.endedAt).at(-1);
+            if (last) {
+              setReportToast({ href: `/report?from=${encodeURIComponent(last.startedAt)}&to=${encodeURIComponent(last.endedAt!)}` });
+            }
+            return updated;
+          });
+        }
+        prevRunning.current = runRes.running;
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(poll);
+  }, []);
+
+  const handleRun = useCallback(async (): Promise<string | null> => {
+    try {
+      const res  = await fetch('/api/run', { method: 'POST' });
+      const data = await res.json() as { status?: string; error?: string; hint?: string };
+      if (!res.ok) return data.hint ?? data.error ?? 'Failed to start';
+      const startedAt = new Date().toISOString();
+      // Set the epoch so polling starts collecting events from now
+      if (!sessionEpoch.current) {
+        sessionEpoch.current = startedAt;
+        sessionStorage.setItem('alc_epoch', startedAt);
+      }
+      const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
+      setSessions(prev => [...prev, newSession]);
+      setActiveSessionId(newSession.id);
+      setRunStatus(prev => ({ ...prev, running: true, started_at: startedAt }));
+      prevRunning.current = true;
+      return null;
+    } catch { return 'Agent server offline — run: python -m alcatraz.serve'; }
+  }, [sessions.length]);
+
+  const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
+    await fetch(`/api/hitl/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    setHitlPending(prev => prev.filter(r => r.id !== id));
+  }, []);
+
+  const selectedAgent   = agentStats.find(a => a.id === selectedAgentId) ?? null;
+  const sessionAgentName = runStatus.agent_id ? (agentNameMap[runStatus.agent_id] ?? null) : null;
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
 
-      {/* ── Header ── */}
-      <motion.header
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="shrink-0 bg-white border-b border-slate-200 px-8 h-14 flex items-center justify-between"
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
+      {/* Header */}
+      <motion.header initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+        className="shrink-0 bg-white border-b border-slate-200 px-8 h-16 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+            </div>
+            <span className="font-bold text-slate-900 text-lg tracking-tight">Alcatraz</span>
           </div>
-          <span className="font-bold text-slate-900 text-lg tracking-tight">Alcatraz</span>
-          <span className="text-slate-300">·</span>
-          <span className="text-sm text-slate-500">Agent Security</span>
+          <div className="w-px h-5 bg-slate-200" />
+          <AgentSelector agents={agentStats} selectedId={selectedAgentId} onSelect={setSelectedAgentId} />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-          </span>
-          <span className="text-xs font-medium text-emerald-600">Live monitoring</span>
+
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span>
+            <span className="text-xs font-medium text-emerald-600">Live</span>
+          </div>
+          <div className="w-px h-5 bg-slate-200" />
+          <Link href="/" className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+            Onboarding
+          </Link>
+          <div className="w-px h-5 bg-slate-200" />
+          <RunButton isRunning={runStatus.running} onRun={handleRun} />
         </div>
       </motion.header>
 
       <div className="flex-1 overflow-hidden min-h-0">
-        <div className="h-full max-w-[1440px] mx-auto px-8 py-6 flex flex-col gap-6">
+        <div className="h-full max-w-[1440px] mx-auto px-8 py-6 flex flex-col gap-5">
 
-          {/* Page heading */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.1, duration: 0.4 }}
-            className="shrink-0"
-          >
-            <h1 className="text-2xl font-bold text-slate-900">Security Dashboard</h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Real-time monitoring of your AI agent ecosystem
-            </p>
-          </motion.div>
-
-          {/* ── KPI row ── */}
+          {/* KPI row */}
           <div className="grid grid-cols-4 gap-5 shrink-0">
-            <KpiCard
-              label="Total Requests"
-              value={totalCalls.toLocaleString()}
-              sub="Across all agents"
-              accent="blue"
-              icon={<Icon.Activity />}
-              delay={0.15}
-            />
-            <KpiCard
-              label="Threats Blocked"
-              value={totalBlocked.toLocaleString()}
-              sub={`${blockRate.toFixed(1)}% of all traffic`}
-              accent="red"
-              icon={<Icon.Shield />}
-              delay={0.22}
-            />
-            <KpiCard
-              label="Block Rate"
-              value={`${blockRate.toFixed(1)}%`}
-              sub={blockRate > 3 ? 'Elevated — review recommended' : 'Within normal range'}
-              accent={blockRate > 10 ? 'red' : blockRate > 3 ? 'amber' : 'green'}
-              icon={<Icon.Percent />}
-              delay={0.29}
-            />
-            <KpiCard
-              label="Active Agents"
-              value={`${activeCount} / ${agentStats.length}`}
-              sub="Active in the last 5 minutes"
-              accent="green"
-              icon={<Icon.Users />}
-              delay={0.36}
-            />
+            <KpiCard label="Total Requests"  value={totalCalls.toLocaleString()}         sub="Across all agents"                                             accent="blue"                                                                       icon={<Icon.Activity />} delay={0.1} />
+            <KpiCard label="Threats Blocked" value={totalBlocked.toLocaleString()}       sub={`${blockRate.toFixed(1)}% of all traffic`}                     accent="red"                                                                        icon={<Icon.Shield />}   delay={0.17} />
+            <KpiCard label="Block Rate"      value={`${blockRate.toFixed(1)}%`}          sub={blockRate > 3 ? 'Elevated — review recommended' : 'Within normal range'} accent={blockRate > 10 ? 'red' : blockRate > 3 ? 'amber' : 'green'}  icon={<Icon.Percent />}  delay={0.24} />
+            <KpiCard label="Active Agents"   value={`${activeCount} / ${agentStats.length}`} sub="Active in the last 5 min"                                  accent="green"                                                                      icon={<Icon.Users />}    delay={0.31} />
           </div>
 
-          {/* ── Main body ── */}
+          {/* Main body */}
           <div className="grid grid-cols-[1fr_300px] gap-5 flex-1 min-h-0">
 
-            {/* Live feed panel */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.42, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-              className="flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
-            >
-              {/* panel header */}
+            {/* Live feed */}
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.36, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+              className="flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
               <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100">
                 <div>
                   <h2 className="text-sm font-semibold text-slate-800">Live Feed</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Intercepted tool calls, newest first
+                    {activeSessionId === 'all' ? `${feed.length} total events` : `${displayFeed.length} events in this run`}
                   </p>
                 </div>
                 <div className="flex items-center gap-2.5">
-                  <span className="text-xs text-slate-400">{feed.length} events</span>
-                  <span className="w-px h-4 bg-slate-200" />
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" />
-                  </span>
-                  <span className="text-xs font-medium text-blue-600">Live</span>
+                  <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" /></span>
+                  <span className="text-xs font-medium text-blue-600">Realtime</span>
                 </div>
               </div>
 
-              {/* column labels */}
-              <div className="shrink-0 flex items-center gap-4 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                <span className="w-2 shrink-0" />
-                <span className="w-36 shrink-0">Agent</span>
-                <span className="w-32 shrink-0">Tool</span>
-                <span className="w-20 shrink-0">Status</span>
-                <span className="flex-1">Payload</span>
-                <span className="shrink-0">Time</span>
+              {sessions.length > 0 && <SessionTabs sessions={sessions} activeId={activeSessionId} onSelect={setActiveSessionId} />}
+
+              <div className="shrink-0 grid grid-cols-[8px_1fr_80px_90px_56px] gap-0 items-center px-5 py-2 bg-slate-50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                <span /><span className="px-3">Tool · Payload</span><span>Agent</span><span>Status</span><span className="text-right">Time</span>
               </div>
 
-              {/* scrollable entries */}
               <div className="flex-1 overflow-y-auto min-h-0">
                 {isLoading ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center py-16">
-                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-                      <Icon.Activity />
-                    </div>
-                    <p className="text-sm font-medium text-slate-600">Loading requests</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Pulling the latest intercepted tool calls
-                    </p>
-                  </div>
+                  <div className="flex flex-col items-center justify-center h-full text-center py-16"><div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4"><Icon.Activity /></div><p className="text-sm font-medium text-slate-600">Loading feed</p></div>
                 ) : error ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center py-16 px-6">
-                    <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mb-4">
-                      <Icon.Shield />
-                    </div>
-                    <p className="text-sm font-medium text-slate-700">Dashboard load failed</p>
-                    <p className="text-xs text-slate-400 mt-1">{error}</p>
-                  </div>
-                ) : feed.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-16 px-6"><div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mb-4"><Icon.Shield /></div><p className="text-sm font-medium text-slate-700">Dashboard load failed</p><p className="text-xs text-slate-400 mt-1">{error}</p></div>
+                ) : displayFeed.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-center py-16">
-                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-                      <Icon.Activity />
-                    </div>
-                    <p className="text-sm font-medium text-slate-600">No requests yet</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Tool calls will appear here as your agents run
+                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4"><Icon.Activity /></div>
+                    <p className="text-sm font-medium text-slate-600">{activeSessionId === 'all' ? 'No events yet' : 'No events in this run'}</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
+                      {sessionEpoch.current ? 'Agent is starting — events will appear here in real time' : 'Click "Run Agent" to launch — all tool calls will stream here live'}
                     </p>
                   </div>
                 ) : (
                   <AnimatePresence mode="popLayout" initial={false}>
-                    {feed.map(entry => (
-                      <motion.div
-                        key={entry.id}
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.22, ease: 'easeOut' }}
-                        layout="position"
-                      >
-                        <LogRow
-                          entry={entry}
-                          agentName={agentNameMap[entry.agent_id] ?? entry.agent_id}
-                        />
+                    {displayFeed.map(entry => (
+                      <motion.div key={entry.id} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} layout="position">
+                        <LogRow entry={entry} agentName={agentNameMap[entry.agent_id] ?? entry.agent_id.slice(0, 8)} onClick={() => setSelectedEntry(entry)} />
                       </motion.div>
                     ))}
                   </AnimatePresence>
@@ -586,46 +1037,38 @@ export default function DashboardClient() {
               </div>
             </motion.div>
 
-            {/* Agent panel */}
-            <div className="flex flex-col min-h-0 overflow-hidden">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.42, duration: 0.3 }}
-                className="shrink-0 mb-4"
-              >
-                <h2 className="text-sm font-semibold text-slate-800">
-                  Agents{' '}
-                  <span className="text-slate-400 font-normal">
-                    {agentStats.length} registered
-                  </span>
-                </h2>
-              </motion.div>
-              <div className="flex-1 overflow-y-auto flex flex-col gap-3 pr-0.5">
-                {isLoading ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
-                    <p className="text-sm text-slate-500">Loading agents</p>
-                  </div>
-                ) : agentStats.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
-                    <p className="text-sm text-slate-500">No agents registered yet</p>
-                  </div>
-                ) : (
-                  agentStats.map((agent, i) => (
-                    <AgentCard
-                      key={agent.id}
-                      agent={agent}
-                      now={now}
-                      delay={0.48 + i * 0.07}
-                    />
-                  ))
-                )}
+            {/* Right panel */}
+            <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+              <ProjectPanel
+                running={runStatus.running}
+                agentName={sessionAgentName ?? selectedAgent?.name ?? null}
+                agentId={runStatus.agent_id ?? selectedAgentId}
+                startedAt={runStatus.started_at ?? null}
+                sessionEventCount={sessionFeed.length}
+                sessionBlockedCount={sessionFeed.filter(e => e.displayStatus === 'BLOCKED').length}
+              />
+              <div className="flex-1 min-h-0 flex flex-col">
+                <GuardrailsPanel agentId={selectedAgentId} />
               </div>
             </div>
-
           </div>
         </div>
       </div>
+
+      {/* Modals + toasts */}
+      <AnimatePresence>
+        {hitlPending.length > 0 && <HitlPanel requests={hitlPending} agentNameMap={agentNameMap} onDecide={handleHitlDecide} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {selectedEntry && (
+          <LogEntryModal entry={selectedEntry} agentName={agentNameMap[selectedEntry.agent_id] ?? selectedEntry.agent_id.slice(0, 8)} onClose={() => setSelectedEntry(null)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {reportToast && <ReportReadyToast href={reportToast.href} onClose={() => setReportToast(null)} />}
+      </AnimatePresence>
     </div>
   );
 }

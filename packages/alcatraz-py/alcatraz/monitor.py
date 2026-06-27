@@ -31,10 +31,11 @@ class AlcatrazMonitor(BaseCallbackHandler):
     4  RESULT — prompt injection / data leak in tool output
     """
 
-    def __init__(self, api_key: str = "", alcatraz_url: str = None, agent_id: str = None):
+    def __init__(self, api_key: str = "", alcatraz_url: str = None, agent_id: str = None, verbose: bool = False):
         self.api_key = api_key
         self.alcatraz_url = alcatraz_url
         self.agent_id = agent_id
+        self.verbose = verbose
 
     # 1 INPUT MONITOR
     def on_chat_model_start(
@@ -89,8 +90,9 @@ class AlcatrazMonitor(BaseCallbackHandler):
         return False
 
     def _alert(self, alert_type: str, source: str, detail: str) -> None:
-        print(f"\n[ALCATRAZ {alert_type}] source={source}")
-        print(f"    {detail}")
+        if self.verbose:
+            print(f"\n[ALCATRAZ {alert_type}] source={source}")
+            print(f"    {detail}")
         # Log the security event to the dashboard in real-time
         if self.agent_id and self.api_key:
             from .logger import send_log

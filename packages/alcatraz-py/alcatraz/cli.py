@@ -28,6 +28,13 @@ def main():
 
 
 @main.command()
+def serve():
+    """Start the local agent runner server for dashboard integration."""
+    from .serve import main as _serve
+    _serve()
+
+
+@main.command()
 @click.argument("file_path", type=click.Path(exists=True))
 @click.option("--api-key", envvar="ANTHROPIC_API_KEY", help="Anthropic API key")
 @click.option("--output", "-o", type=click.Path(), help="Save JSON report to this file")
