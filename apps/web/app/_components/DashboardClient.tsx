@@ -119,19 +119,29 @@ function KpiCard({ label, value, sub, accent, icon, delay }: {
   );
 }
 
+// ── Security event classification ────────────────────────────────────────────
+const SECURITY_TOOLS: Record<string, { label: string; icon: string }> = {
+  prompt_injection:   { label: 'Injection', icon: '⚠' },
+  sensitive_data_leak: { label: 'Data Leak', icon: '🔑' },
+};
+
 // ── Log row ───────────────────────────────────────────────────────────────────
 function LogRow({ entry, agentName }: { entry: FeedEntry; agentName: string }) {
   const blocked = entry.status === 'BLOCKED';
   const hint = extractHint(entry.payload);
+  const securityEvent = SECURITY_TOOLS[entry.tool_name];
+  const isInjection = !!securityEvent;
 
   return (
     <div className={cn(
       'flex items-center gap-4 px-5 py-3.5 border-b border-slate-100 transition-colors text-sm',
-      blocked ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-slate-50',
+      isInjection ? 'bg-red-50 hover:bg-red-100/60 border-l-2 border-l-red-500' :
+      blocked     ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-slate-50',
     )}>
       <span className={cn(
         'h-2 w-2 rounded-full shrink-0',
-        blocked ? 'bg-red-500' : 'bg-emerald-400',
+        isInjection ? 'bg-red-600 animate-pulse' :
+        blocked     ? 'bg-red-500' : 'bg-emerald-400',
       )} />
 
       <span className="shrink-0 text-xs font-medium text-slate-600 bg-slate-100 rounded-md px-2 py-1 w-36 truncate">
@@ -140,17 +150,24 @@ function LogRow({ entry, agentName }: { entry: FeedEntry; agentName: string }) {
 
       <span className={cn(
         'font-mono text-sm shrink-0 w-32 truncate',
-        blocked ? 'text-red-700 font-semibold' : 'text-slate-700',
+        isInjection ? 'text-red-800 font-bold' :
+        blocked     ? 'text-red-700 font-semibold' : 'text-slate-700',
       )}>
-        {entry.tool_name}
+        {isInjection ? `${securityEvent.icon} ${entry.tool_name}` : entry.tool_name}
       </span>
 
-      <span className={cn(
-        'shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full',
-        blocked ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600',
-      )}>
-        {blocked ? 'Blocked' : 'Allowed'}
-      </span>
+      {isInjection ? (
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-red-600 text-white">
+          {securityEvent.label}
+        </span>
+      ) : (
+        <span className={cn(
+          'shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full',
+          blocked ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600',
+        )}>
+          {blocked ? 'Blocked' : 'Allowed'}
+        </span>
+      )}
 
       {entry.severity && (
         <span className={cn(
@@ -167,6 +184,12 @@ function LogRow({ entry, agentName }: { entry: FeedEntry; agentName: string }) {
       {hint && (
         <span className="text-xs text-slate-400 font-mono truncate flex-1 min-w-0">
           {hint}
+        </span>
+      )}
+
+      {!hint && isInjection && entry.payload && (
+        <span className="text-xs text-red-400 font-mono truncate flex-1 min-w-0">
+          {String((entry.payload as Record<string, unknown>).source ?? '')}
         </span>
       )}
 
