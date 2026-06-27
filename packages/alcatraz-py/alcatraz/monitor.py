@@ -91,3 +91,18 @@ class AlcatrazMonitor(BaseCallbackHandler):
     def _alert(self, alert_type: str, source: str, detail: str) -> None:
         print(f"\n[ALCATRAZ {alert_type}] source={source}")
         print(f"    {detail}")
+        # Log the security event to the dashboard in real-time
+        if self.agent_id and self.api_key:
+            from .logger import send_log
+            tool_name = (
+                "prompt_injection" if "INJECTION" in alert_type else "sensitive_data_leak"
+            )
+            send_log(
+                api_key=self.api_key,
+                tool_name=tool_name,
+                status="BLOCKED",
+                severity="critical" if "INJECTION" in alert_type else "high",
+                payload={"source": source, "detail": detail, "alert_type": alert_type},
+                alcatraz_url=self.alcatraz_url,
+                agent_id=self.agent_id,
+            )
