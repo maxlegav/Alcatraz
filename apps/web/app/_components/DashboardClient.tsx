@@ -1,57 +1,23 @@
 'use client';
 
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase/client';
 import { formatTimeAgo, formatTime } from '@/lib/agent-status';
 import type { AgentStat, FeedEntry } from './types';
+import type { Vulnerability, Guardrail } from '@/lib/supabase/types';
 import { loadDashboardData, upsertRealtimeAgentStats } from './dashboard-data';
 import AnalyzeButton from '../agents/[id]/AnalyzeButton';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type HitlRequest = {
-  id: string;
-  agent_id: string;
-  tool_name: string;
-  tool_input: string;
-  status: 'pending' | 'approved' | 'denied';
-  created_at: string;
+  id: string; agent_id: string; tool_name: string; tool_input: string;
+  status: 'pending' | 'approved' | 'denied'; created_at: string;
 };
-
-// ── Health ────────────────────────────────────────────────────────────────────
-type HealthTone = 'green' | 'amber' | 'red' | 'slate';
-type Health = { label: string; blockRate: number; tone: HealthTone };
-
-function deriveHealth(a: AgentStat): Health {
-  const blockRate = a.totalCalls > 0 ? (a.blockedCalls / a.totalCalls) * 100 : 0;
-  if (a.totalCalls === 0) return { label: 'Idle',     blockRate, tone: 'slate' };
-  if (blockRate > 10)     return { label: 'Critical', blockRate, tone: 'red'   };
-  if (blockRate > 3)      return { label: 'Elevated', blockRate, tone: 'amber' };
-  return                         { label: 'Healthy',  blockRate, tone: 'green' };
-}
-
-const AVATAR_COLORS = [
-  'bg-blue-500', 'bg-violet-500', 'bg-emerald-500',
-  'bg-orange-500', 'bg-rose-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-teal-500',
-];
-function avatarColor(id: string) {
-  const code = id.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0);
-  return AVATAR_COLORS[code % AVATAR_COLORS.length];
-}
-
-function extractHint(payload: Record<string, unknown> | null): string {
-  if (!payload) return '';
-  const direct = payload.command ?? payload.url ?? payload.path ?? payload.query ?? payload.table ?? payload.key ?? payload.to;
-  if (direct) return String(direct);
-  const input = payload.input as Record<string, unknown> | undefined;
-  if (input) {
-    const nested = input.command ?? input.url ?? input.path ?? input.query ?? input.target ?? input.to ?? input.key;
-    if (nested) return String(nested);
-  }
-  return '';
-}
+type Session = { id: string; n: number; startedAt: string; endedAt?: string };
+type RunStatus = { online: boolean; running: boolean; agent_id?: string; started_at?: string };
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const Icon = {
@@ -67,23 +33,17 @@ const Icon = {
   ),
   Percent: () => (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="19" y1="5" x2="5" y2="19" />
-      <circle cx="6.5" cy="6.5" r="2.5" />
-      <circle cx="17.5" cy="17.5" r="2.5" />
+      <line x1="19" y1="5" x2="5" y2="19" /><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" />
     </svg>
   ),
   Users: () => (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
   Play: () => (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
-      <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
   ),
   Check: () => (
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -98,6 +58,21 @@ const Icon = {
   Clock: () => (
     <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+  ChevronDown: () => (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  ),
+  Lock: () => (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  ),
+  Warning: () => (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
     </svg>
   ),
 };
@@ -117,8 +92,7 @@ function KpiCard({ label, value, sub, accent, icon, delay }: {
   const c = ACCENT[accent];
   return (
     <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
       className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6"
     >
@@ -128,75 +102,123 @@ function KpiCard({ label, value, sub, accent, icon, delay }: {
           <p className="text-sm font-medium text-slate-500 mb-1.5">{label}</p>
           <p className={cn('text-[40px] font-bold leading-none tracking-tight', c.value)}>{value}</p>
         </div>
-        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', c.icon)}>
-          {icon}
-        </div>
+        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', c.icon)}>{icon}</div>
       </div>
       {sub && <p className="text-sm text-slate-400 mt-4">{sub}</p>}
     </motion.div>
   );
 }
 
-// ── Security event classification ─────────────────────────────────────────────
-const SECURITY_TOOLS: Record<string, { label: string }> = {
-  prompt_injection:    { label: 'Injection' },
-  sensitive_data_leak: { label: 'Data Leak' },
-};
+// ── Session tabs ──────────────────────────────────────────────────────────────
+function SessionTabs({ sessions, activeId, onSelect }: {
+  sessions: Session[]; activeId: string; onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 px-5 py-3 border-b border-slate-100 overflow-x-auto shrink-0">
+      <button
+        onClick={() => onSelect('all')}
+        className={cn(
+          'px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0',
+          activeId === 'all' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+        )}
+      >
+        All runs
+      </button>
+      {sessions.map(s => (
+        <button
+          key={s.id}
+          onClick={() => onSelect(s.id)}
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0',
+            activeId === s.id ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+          )}
+        >
+          Run #{s.n}
+          {!s.endedAt && (
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // ── Log row ───────────────────────────────────────────────────────────────────
+const SECURITY_EVENTS = new Set(['prompt_injection', 'sensitive_data_leak']);
+
+const SEVERITY_STYLE: Record<string, string> = {
+  critical: 'bg-red-100 text-red-700',
+  high:     'bg-orange-100 text-orange-700',
+  medium:   'bg-amber-100 text-amber-700',
+  low:      'bg-slate-100 text-slate-500',
+};
+
+function extractHint(payload: Record<string, unknown> | null): string {
+  if (!payload) return '';
+  const direct = payload.command ?? payload.url ?? payload.path ?? payload.query ?? payload.table ?? payload.key ?? payload.to;
+  if (direct) return String(direct);
+  const input = payload.input as Record<string, unknown> | undefined;
+  if (input) {
+    const nested = input.command ?? input.url ?? input.path ?? input.query ?? input.target ?? input.to ?? input.key;
+    if (nested) return String(nested);
+  }
+  return '';
+}
+
 function LogRow({ entry, agentName }: { entry: FeedEntry; agentName: string }) {
   const blocked = entry.status === 'BLOCKED';
+  const isSecEv = SECURITY_EVENTS.has(entry.tool_name);
   const hint    = extractHint(entry.payload);
-  const secEv   = SECURITY_TOOLS[entry.tool_name];
 
   return (
     <div className={cn(
-      'flex items-center gap-4 px-5 py-3.5 border-b border-slate-100 transition-colors text-sm',
-      secEv   ? 'bg-red-50 hover:bg-red-100/60 border-l-2 border-l-red-500' :
-      blocked ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-slate-50',
+      'grid items-center gap-0 px-5 py-3 border-b border-slate-100/80 text-xs transition-colors',
+      'grid-cols-[16px_1fr_90px_72px_56px]',
+      isSecEv   ? 'bg-red-50/80 hover:bg-red-50 border-l-[3px] border-l-red-500' :
+      blocked   ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50',
     )}>
+      {/* Status dot */}
       <span className={cn(
         'h-2 w-2 rounded-full shrink-0',
-        secEv   ? 'bg-red-600 animate-pulse' :
-        blocked ? 'bg-red-500' : 'bg-emerald-400',
+        isSecEv ? 'bg-red-600 animate-pulse' : blocked ? 'bg-red-400' : 'bg-emerald-400',
       )} />
-      <span className="shrink-0 text-xs font-medium text-slate-600 bg-slate-100 rounded-md px-2 py-1 w-36 truncate">
-        {agentName}
-      </span>
+
+      {/* Tool name + hint */}
+      <div className="min-w-0 px-3">
+        <div className="flex items-center gap-2">
+          <span className={cn(
+            'font-mono font-semibold truncate',
+            isSecEv ? 'text-red-700 text-xs' : blocked ? 'text-slate-800' : 'text-slate-700',
+          )}>
+            {entry.tool_name}
+          </span>
+          {isSecEv && (
+            <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-red-600 text-white">
+              Injection
+            </span>
+          )}
+        </div>
+        {hint && (
+          <span className="text-[10px] text-slate-400 truncate block mt-0.5 font-mono">{hint}</span>
+        )}
+      </div>
+
+      {/* Agent name */}
+      <span className="text-[10px] text-slate-400 truncate">{agentName}</span>
+
+      {/* Severity */}
       <span className={cn(
-        'font-mono text-sm shrink-0 w-32 truncate',
-        secEv   ? 'text-red-800 font-bold' :
-        blocked ? 'text-red-700 font-semibold' : 'text-slate-700',
+        'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full text-center',
+        entry.severity ? SEVERITY_STYLE[entry.severity] ?? 'bg-slate-100 text-slate-500' : '',
       )}>
-        {entry.tool_name}
+        {entry.severity ?? ''}
       </span>
-      {secEv ? (
-        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-red-600 text-white">
-          {secEv.label}
-        </span>
-      ) : (
-        <span className={cn(
-          'shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full',
-          blocked ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600',
-        )}>
-          {blocked ? 'Blocked' : 'Allowed'}
-        </span>
-      )}
-      {entry.severity && (
-        <span className={cn(
-          'shrink-0 text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full',
-          entry.severity === 'critical' && 'bg-red-100 text-red-700',
-          entry.severity === 'high'     && 'bg-orange-100 text-orange-700',
-          entry.severity === 'medium'   && 'bg-amber-100 text-amber-700',
-          entry.severity === 'low'      && 'bg-slate-100 text-slate-500',
-        )}>
-          {entry.severity}
-        </span>
-      )}
-      <span className="text-xs text-slate-400 font-mono truncate flex-1 min-w-0">
-        {hint || (secEv && entry.payload ? String((entry.payload as Record<string,unknown>).source ?? '') : '')}
-      </span>
-      <span className="text-xs text-slate-400 shrink-0 ml-auto font-mono tabular-nums">
+
+      {/* Time */}
+      <span className="text-[10px] text-slate-400 tabular-nums text-right font-mono">
         {formatTime(entry.created_at)}
       </span>
     </div>
@@ -204,11 +226,7 @@ function LogRow({ entry, agentName }: { entry: FeedEntry; agentName: string }) {
 }
 
 // ── HITL Panel ────────────────────────────────────────────────────────────────
-function HitlPanel({
-  requests,
-  agentNameMap,
-  onDecide,
-}: {
+function HitlPanel({ requests, agentNameMap, onDecide }: {
   requests: HitlRequest[];
   agentNameMap: Record<string, string>;
   onDecide: (id: string, status: 'approved' | 'denied') => Promise<void>;
@@ -225,13 +243,11 @@ function HitlPanel({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 40, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
+      initial={{ opacity: 0, y: 40, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 20, scale: 0.96 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="fixed bottom-6 right-6 z-50 w-[420px] bg-white rounded-2xl border-2 border-amber-400 shadow-2xl overflow-hidden"
     >
-      {/* Header */}
       <div className="bg-amber-50 border-b border-amber-200 px-5 py-3 flex items-center gap-3">
         <span className="relative flex h-3 w-3">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
@@ -239,11 +255,9 @@ function HitlPanel({
         </span>
         <div>
           <p className="text-sm font-bold text-amber-900">Human Approval Required</p>
-          <p className="text-xs text-amber-700">{requests.length} action{requests.length > 1 ? 's' : ''} waiting for operator review</p>
+          <p className="text-xs text-amber-700">{requests.length} action{requests.length > 1 ? 's' : ''} waiting</p>
         </div>
       </div>
-
-      {/* Requests */}
       <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
         {requests.map(req => (
           <div key={req.id} className="px-5 py-4">
@@ -260,27 +274,19 @@ function HitlPanel({
                 <p className="font-mono text-sm font-bold text-slate-800">{req.tool_name}</p>
               </div>
             </div>
-
             {req.tool_input && (
               <div className="mb-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Input</p>
                 <p className="font-mono text-xs text-slate-600 break-all line-clamp-3">{req.tool_input}</p>
               </div>
             )}
-
             <div className="flex gap-2">
-              <button
-                onClick={() => decide(req.id, 'approved')}
-                disabled={deciding[req.id]}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold py-2.5 transition-colors"
-              >
+              <button onClick={() => decide(req.id, 'approved')} disabled={deciding[req.id]}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold py-2.5 transition-colors">
                 <Icon.Check /> Approve
               </button>
-              <button
-                onClick={() => decide(req.id, 'denied')}
-                disabled={deciding[req.id]}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 text-sm font-semibold py-2.5 transition-colors"
-              >
+              <button onClick={() => decide(req.id, 'denied')} disabled={deciding[req.id]}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-red-100 hover:bg-red-200 disabled:opacity-50 text-red-700 text-sm font-semibold py-2.5 transition-colors">
                 <Icon.X /> Deny
               </button>
             </div>
@@ -291,120 +297,7 @@ function HitlPanel({
   );
 }
 
-// ── Agent card ────────────────────────────────────────────────────────────────
-const HEALTH_BADGE: Record<HealthTone, string> = {
-  green: 'bg-emerald-100 text-emerald-700',
-  amber: 'bg-amber-100 text-amber-700',
-  red:   'bg-red-100 text-red-700',
-  slate: 'bg-slate-100 text-slate-500',
-};
-const HEALTH_BAR: Record<HealthTone, string> = {
-  green: 'bg-emerald-500', amber: 'bg-amber-500', red: 'bg-red-500', slate: 'bg-slate-300',
-};
-const HEALTH_TEXT: Record<HealthTone, string> = {
-  green: 'text-emerald-600', amber: 'text-amber-600', red: 'text-red-600', slate: 'text-slate-400',
-};
-const SUGGESTION_LABEL: Record<string, string> = {
-  prompt_injection: 'Prompt fix', tool_redesign: 'Tool redesign',
-  data_provision: 'Data source', other: 'Manual review',
-};
-
-function AgentCard({ agent, now, delay }: { agent: AgentStat; now: number; delay: number }) {
-  const h   = deriveHealth(agent);
-  const barW = `${Math.min(h.blockRate * 6, 100)}%`;
-  const topPattern    = agent.latestInsight?.top_pattern ?? null;
-  const recurringCount = agent.latestInsight?.recurring_tool_names.length ?? 0;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4"
-    >
-      <div className="flex items-start gap-3 mb-3.5">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0', avatarColor(agent.id))}>
-            {agent.name[0].toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <Link href={`/agents/${agent.id}`} className="block truncate text-sm font-semibold text-slate-800 hover:text-blue-700">
-              {agent.name}
-            </Link>
-            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              <span className={cn('inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full', HEALTH_BADGE[h.tone])}>
-                {h.label}
-              </span>
-              {typeof agent.version === 'number' && (
-                <span className="inline-block rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-                  v{agent.version}
-                </span>
-              )}
-              {recurringCount > 0 && (
-                <span className="inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                  {recurringCount} recurring
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-        <AnalyzeButton agentId={agent.id} />
-      </div>
-
-      <div className="mb-3">
-        <div className="flex justify-between items-center mb-1.5">
-          <span className="text-xs text-slate-500">Block rate</span>
-          <span className={cn('text-xs font-bold', HEALTH_TEXT[h.tone])}>{h.blockRate.toFixed(1)}%</span>
-        </div>
-        <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-          <motion.div
-            className={cn('h-full rounded-full', HEALTH_BAR[h.tone])}
-            initial={{ width: 0 }}
-            animate={{ width: barW }}
-            transition={{ delay: delay + 0.2, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-          />
-        </div>
-      </div>
-
-      {agent.latestInsight ? (
-        <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Latest Insight</p>
-            <span className="text-[10px] text-slate-400">{new Date(agent.latestInsight.created_at).toLocaleDateString()}</span>
-          </div>
-          {topPattern ? (
-            <>
-              <div className="mt-2 flex items-center gap-2">
-                <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">{topPattern.tool_name}</span>
-                <span className="text-[10px] font-medium text-slate-500">{topPattern.blocked_count} blocked</span>
-                <span className="text-[10px] text-slate-400">{SUGGESTION_LABEL[topPattern.suggestion_type] ?? 'Review'}</span>
-              </div>
-              <p className="mt-2 text-xs leading-5 text-slate-500 line-clamp-3">{topPattern.suggestion}</p>
-            </>
-          ) : (
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              {agent.latestInsight.summary ?? 'No blocked patterns found in the latest analysis.'}
-            </p>
-          )}
-          <Link href={`/agents/${agent.id}`} className="mt-2 inline-flex text-xs font-medium text-blue-600 hover:text-blue-700">
-            View analysis
-          </Link>
-        </div>
-      ) : (
-        <div className="mb-3 rounded-2xl border border-dashed border-slate-200 p-3 text-xs text-slate-400">
-          No analysis yet. Run the first scan from this card.
-        </div>
-      )}
-
-      <div className="flex justify-between text-xs text-slate-400">
-        <span>{agent.totalCalls.toLocaleString()} calls · {agent.blockedCalls} blocked</span>
-        <span>{formatTimeAgo(agent.lastActive, now)}</span>
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Run Agent button ──────────────────────────────────────────────────────────
+// ── Run Button ────────────────────────────────────────────────────────────────
 function RunButton({ isRunning, onRun }: { isRunning: boolean; onRun: () => Promise<string | null> }) {
   const [error, setError] = useState('');
 
@@ -412,10 +305,7 @@ function RunButton({ isRunning, onRun }: { isRunning: boolean; onRun: () => Prom
     if (isRunning) return;
     setError('');
     const err = await onRun();
-    if (err) {
-      setError(err);
-      setTimeout(() => setError(''), 6000);
-    }
+    if (err) { setError(err); setTimeout(() => setError(''), 6000); }
   };
 
   return (
@@ -426,7 +316,7 @@ function RunButton({ isRunning, onRun }: { isRunning: boolean; onRun: () => Prom
         className={cn(
           'flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all',
           isRunning ? 'bg-amber-100 text-amber-700 cursor-not-allowed' :
-          error      ? 'bg-red-100 text-red-700' :
+          error     ? 'bg-red-100 text-red-700' :
           'bg-blue-600 hover:bg-blue-700 text-white shadow-sm',
         )}
       >
@@ -439,32 +329,20 @@ function RunButton({ isRunning, onRun }: { isRunning: boolean; onRun: () => Prom
             Running…
           </>
         ) : (
-          <>
-            <Icon.Play />
-            Run Demo Agent
-          </>
+          <><Icon.Play /> Run Agent</>
         )}
       </button>
-      {error && (
-        <p className="text-[10px] text-red-500 max-w-[220px] text-right leading-4">{error}</p>
-      )}
+      {error && <p className="text-[10px] text-red-500 max-w-[220px] text-right leading-4">{error}</p>}
     </div>
   );
 }
 
-// ── Active Session panel ───────────────────────────────────────────────────────
-function SessionPanel({
-  running,
-  agentName,
-  startedAt,
-  sessionEventCount,
-  sessionBlockedCount,
+// ── Project Panel ─────────────────────────────────────────────────────────────
+function ProjectPanel({
+  running, agentName, agentId, startedAt, sessionEventCount, sessionBlockedCount,
 }: {
-  running: boolean;
-  agentName: string | null;
-  startedAt: string | null;
-  sessionEventCount: number;
-  sessionBlockedCount: number;
+  running: boolean; agentName: string | null; agentId: string | null;
+  startedAt: string | null; sessionEventCount: number; sessionBlockedCount: number;
 }) {
   const [elapsed, setElapsed] = useState('');
 
@@ -472,8 +350,7 @@ function SessionPanel({
     if (!startedAt) { setElapsed(''); return; }
     const update = () => {
       const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
-      if (secs < 60) setElapsed(`${secs}s`);
-      else setElapsed(`${Math.floor(secs / 60)}m ${secs % 60}s`);
+      setElapsed(secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`);
     };
     update();
     const t = setInterval(update, 1000);
@@ -482,18 +359,14 @@ function SessionPanel({
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
+      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
       transition={{ delay: 0.4, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        'rounded-2xl border shadow-sm p-4 mb-3 transition-colors duration-500',
-        running
-          ? 'bg-blue-950 border-blue-700'
-          : 'bg-white border-slate-200',
+        'rounded-2xl border shadow-sm p-4 transition-colors duration-500',
+        running ? 'bg-blue-950 border-blue-700' : 'bg-white border-slate-200',
       )}
     >
-      {/* Header row */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2">
         <span className={cn('text-[10px] font-bold uppercase tracking-wider', running ? 'text-blue-300' : 'text-slate-400')}>
           Active Session
         </span>
@@ -507,77 +380,256 @@ function SessionPanel({
               <span className="text-[10px] font-semibold text-blue-300">RUNNING</span>
             </>
           ) : (
-            <>
-              <span className="h-2 w-2 rounded-full bg-slate-300" />
-              <span className="text-[10px] font-semibold text-slate-400">IDLE</span>
-            </>
+            <><span className="h-2 w-2 rounded-full bg-slate-300" /><span className="text-[10px] font-semibold text-slate-400">IDLE</span></>
           )}
         </div>
       </div>
 
-      {/* Agent name */}
-      <p className={cn('text-sm font-semibold truncate mb-3', running ? 'text-white' : 'text-slate-800')}>
-        {agentName ?? 'AI Customer Research Agent'}
-      </p>
-
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className={cn('rounded-xl p-2.5 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
-          <p className={cn('text-[10px] font-medium mb-1', running ? 'text-blue-400' : 'text-slate-400')}>Elapsed</p>
-          <p className={cn('text-sm font-bold tabular-nums', running ? 'text-white' : 'text-slate-500')}>
-            {running && elapsed ? elapsed : '—'}
-          </p>
-        </div>
-        <div className={cn('rounded-xl p-2.5 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
-          <p className={cn('text-[10px] font-medium mb-1', running ? 'text-blue-400' : 'text-slate-400')}>Events</p>
-          <p className={cn('text-sm font-bold tabular-nums', running ? 'text-white' : 'text-slate-500')}>
-            {sessionEventCount > 0 ? sessionEventCount : '—'}
-          </p>
-        </div>
-        <div className={cn('rounded-xl p-2.5 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
-          <p className={cn('text-[10px] font-medium mb-1', running ? 'text-blue-400' : 'text-slate-400')}>Blocked</p>
-          <p className={cn('text-sm font-bold tabular-nums', running && sessionBlockedCount > 0 ? 'text-red-400' : running ? 'text-white' : 'text-slate-500')}>
-            {sessionEventCount > 0 ? sessionBlockedCount : '—'}
-          </p>
-        </div>
-      </div>
-
-      {/* Demo info */}
-      {!running && (
-        <p className="text-[10px] text-slate-400 leading-4">
-          LangChain research agent · Supabase Realtime · HITL approvals
+      {agentName ? (
+        <p className={cn('text-sm font-semibold truncate mb-3', running ? 'text-white' : 'text-slate-800')}>
+          {agentName}
+        </p>
+      ) : (
+        <p className={cn('text-sm truncate mb-3 italic', running ? 'text-blue-300' : 'text-slate-400')}>
+          No agent selected
         </p>
       )}
-      {running && (
-        <div className="rounded-xl bg-blue-900/40 border border-blue-800 px-3 py-2">
-          <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider mb-1">Demo scenario</p>
-          <p className="text-[11px] text-blue-200 leading-4">
-            AI research agent · web_search → database_query → send_report
-          </p>
-        </div>
+
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {[
+          { label: 'Elapsed', value: running && elapsed ? elapsed : '—' },
+          { label: 'Events',  value: sessionEventCount > 0 ? String(sessionEventCount) : '—' },
+          { label: 'Blocked', value: sessionEventCount > 0 ? String(sessionBlockedCount) : '—' },
+        ].map(({ label, value }) => (
+          <div key={label} className={cn('rounded-xl p-2 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
+            <p className={cn('text-[9px] font-medium mb-0.5', running ? 'text-blue-400' : 'text-slate-400')}>{label}</p>
+            <p className={cn('text-xs font-bold tabular-nums', running ? 'text-white' : 'text-slate-500')}>{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {agentId && (
+        <Link
+          href={`/agents/${agentId}`}
+          className={cn('text-[11px] font-medium hover:underline', running ? 'text-blue-400' : 'text-blue-600')}
+        >
+          View agent details →
+        </Link>
       )}
     </motion.div>
   );
 }
 
-type RunStatus = {
-  online: boolean;
-  running: boolean;
-  agent_id?: string;
-  started_at?: string;
+// ── Audit Panel ───────────────────────────────────────────────────────────────
+const SEV_BADGE: Record<string, string> = {
+  critical: 'bg-red-100 text-red-700',
+  high:     'bg-orange-100 text-orange-700',
+  medium:   'bg-amber-100 text-amber-700',
+  low:      'bg-slate-100 text-slate-500',
 };
+
+function AuditPanel({ agentId, agentName }: { agentId: string | null; agentName: string | null }) {
+  const [vulns, setVulns]       = useState<Vulnerability[]>([]);
+  const [guardrail, setGuardrail] = useState<Guardrail | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [scanDate, setScanDate] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  useEffect(() => {
+    if (!agentId) return;
+    setLoading(true);
+    Promise.all([
+      fetch(`/api/findings?agent_id=${agentId}`).then(r => r.json()),
+      fetch(`/api/guardrails?agent_id=${agentId}`).then(r => r.json()),
+    ]).then(([f, g]) => {
+      const findings = (f.findings ?? []) as Array<{ vulnerabilities: Vulnerability[]; created_at: string }>;
+      const latest = findings[0];
+      setVulns(latest?.vulnerabilities ?? []);
+      setScanDate(latest?.created_at ?? null);
+      const guardrails = (g.guardrails ?? []) as Guardrail[];
+      setGuardrail(guardrails[0] ?? null);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [agentId]);
+
+  const runAnalysis = async () => {
+    if (!agentId) return;
+    setAnalyzing(true);
+    await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent_id: agentId }) })
+      .catch(() => {});
+    setAnalyzing(false);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: 0.5, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col"
+    >
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500">
+            <Icon.Shield />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-800">Security Audit</p>
+            {scanDate && <p className="text-[10px] text-slate-400">{formatTimeAgo(scanDate, Date.now())}</p>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {agentId && <AnalyzeButton agentId={agentId} />}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+        {loading ? (
+          <div className="text-center py-6 text-xs text-slate-400">Loading audit data…</div>
+        ) : !agentId ? (
+          <div className="text-center py-6 text-xs text-slate-400">Select an agent to view audit</div>
+        ) : (
+          <>
+            {/* Vulnerabilities */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                <Icon.Warning />
+                {vulns.length > 0 ? `${vulns.length} Vulnerabilities` : 'No scan results'}
+              </p>
+              {vulns.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 p-3 text-center">
+                  <p className="text-xs text-slate-400">Run a red team scan to detect vulnerabilities</p>
+                  <Link href="/" className="text-[11px] text-blue-600 hover:underline">
+                    Go to onboarding →
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {vulns.map((v, i) => (
+                    <div key={i} className="flex items-start gap-2 p-2 rounded-xl bg-slate-50 border border-slate-100">
+                      <span className={cn('text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full shrink-0 mt-0.5', SEV_BADGE[v.severity])}>
+                        {v.severity}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-slate-700 truncate">{v.type}</p>
+                        <p className="text-[10px] text-slate-400 line-clamp-2 mt-0.5">{v.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Guardrails */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                <Icon.Lock />
+                Guardrails
+              </p>
+              {!guardrail ? (
+                <p className="text-xs text-slate-400 italic">No guardrails configured</p>
+              ) : (
+                <div className="space-y-2">
+                  {guardrail.deny_patterns.length > 0 && (
+                    <div>
+                      <p className="text-[9px] font-bold text-red-500 uppercase tracking-wider mb-1">DENY</p>
+                      <div className="flex flex-wrap gap-1">
+                        {guardrail.deny_patterns.map(p => (
+                          <span key={p} className="rounded-md bg-red-50 border border-red-100 px-1.5 py-0.5 font-mono text-[10px] text-red-600">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {guardrail.allow_patterns.length > 0 && (
+                    <div>
+                      <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider mb-1">ALLOW</p>
+                      <div className="flex flex-wrap gap-1">
+                        {guardrail.allow_patterns.map(p => (
+                          <span key={p} className="rounded-md bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 font-mono text-[10px] text-emerald-700">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {guardrail.max_calls_per_min != null && (
+                    <p className="text-[10px] text-slate-400">
+                      Rate limit: <span className="font-semibold text-slate-600">{guardrail.max_calls_per_min} calls/min</span>
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Manual analysis */}
+            <button
+              onClick={runAnalysis}
+              disabled={analyzing}
+              className="w-full text-xs font-semibold text-slate-500 hover:text-slate-700 py-2 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              {analyzing ? 'Analyzing…' : 'Run Pattern Analysis'}
+            </button>
+          </>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Agent selector dropdown ───────────────────────────────────────────────────
+function AgentSelector({ agents, selectedId, onSelect }: {
+  agents: AgentStat[]; selectedId: string | null; onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = agents.find(a => a.id === selectedId);
+
+  if (agents.length === 0) return null;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors text-sm"
+      >
+        <span className="h-2 w-2 rounded-full bg-blue-500" />
+        <span className="text-slate-700 font-medium">{selected?.name ?? 'Select agent'}</span>
+        <Icon.ChevronDown />
+      </button>
+      {open && (
+        <div className="absolute top-full mt-1 left-0 z-20 w-56 rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+          {agents.map(a => (
+            <button
+              key={a.id}
+              onClick={() => { onSelect(a.id); setOpen(false); }}
+              className={cn(
+                'w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2',
+                a.id === selectedId ? 'text-blue-600 font-semibold' : 'text-slate-700',
+              )}
+            >
+              <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', a.id === selectedId ? 'bg-blue-500' : 'bg-slate-300')} />
+              <span className="truncate">{a.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Dashboard client ──────────────────────────────────────────────────────────
 export default function DashboardClient() {
-  const [now, setNow]                 = useState(() => Date.now());
-  const [feed, setFeed]               = useState<FeedEntry[]>([]);
-  const [agentStats, setAgentStats]   = useState<AgentStat[]>([]);
+  const [now, setNow]                   = useState(() => Date.now());
+  const [feed, setFeed]                 = useState<FeedEntry[]>([]);
+  const [agentStats, setAgentStats]     = useState<AgentStat[]>([]);
   const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading]     = useState(true);
-  const [error, setError]             = useState<string | null>(null);
-  const [hitlPending, setHitlPending] = useState<HitlRequest[]>([]);
-  const [runStatus, setRunStatus]     = useState<RunStatus>({ online: false, running: false });
+  const [isLoading, setIsLoading]       = useState(true);
+  const [error, setError]               = useState<string | null>(null);
+  const [hitlPending, setHitlPending]   = useState<HitlRequest[]>([]);
+  const [runStatus, setRunStatus]       = useState<RunStatus>({ online: false, running: false });
 
+  // Per-run session tracking
+  const [sessions, setSessions]         = useState<Session[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>('all');
+
+  // Which agent to show in right panel
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+  // Derived stats
   const totalCalls   = agentStats.reduce((s, a) => s + a.totalCalls,   0);
   const totalBlocked = agentStats.reduce((s, a) => s + a.blockedCalls, 0);
   const blockRate    = totalCalls > 0 ? (totalBlocked / totalCalls) * 100 : 0;
@@ -585,22 +637,51 @@ export default function DashboardClient() {
     a => a.lastActive && now - new Date(a.lastActive).getTime() < 300_000
   ).length;
 
-  // Session-scoped event counts (entries after the session started_at)
-  const sessionStarted = runStatus.started_at ? new Date(runStatus.started_at).getTime() : null;
-  const sessionFeed    = sessionStarted
-    ? feed.filter(e => new Date(e.created_at).getTime() >= sessionStarted)
-    : [];
+  // Session-scoped stats
+  const currentSession = sessions.find(s => s.id === activeSessionId);
+  const sessionStartMs = currentSession ? new Date(currentSession.startedAt).getTime()
+    : (runStatus.started_at ? new Date(runStatus.started_at).getTime() : null);
+
+  const sessionFeed = useMemo(() => {
+    if (!sessionStartMs) return [];
+    return feed.filter(e => new Date(e.created_at).getTime() >= sessionStartMs);
+  }, [feed, sessionStartMs]);
+
   const sessionEventCount   = sessionFeed.length;
   const sessionBlockedCount = sessionFeed.filter(e => e.status === 'BLOCKED').length;
-  const sessionAgentName    = runStatus.agent_id ? (agentNameMap[runStatus.agent_id] ?? null) : null;
 
-  // Refresh relative timestamps every 30s
+  // Filtered feed for display
+  const displayFeed = useMemo(() => {
+    if (activeSessionId === 'all') return feed;
+    const session = sessions.find(s => s.id === activeSessionId);
+    if (!session) return feed;
+    const start = new Date(session.startedAt).getTime();
+    const end   = session.endedAt ? new Date(session.endedAt).getTime() : Infinity;
+    return feed.filter(e => {
+      const t = new Date(e.created_at).getTime();
+      return t >= start && t <= end;
+    });
+  }, [feed, sessions, activeSessionId]);
+
+  // Auto-select first agent when data loads
+  useEffect(() => {
+    if (selectedAgentId === null && agentStats.length > 0) {
+      setSelectedAgentId(agentStats[0].id);
+    }
+  }, [agentStats, selectedAgentId]);
+
+  // When run status agent changes, switch selected agent
+  useEffect(() => {
+    if (runStatus.agent_id) setSelectedAgentId(runStatus.agent_id);
+  }, [runStatus.agent_id]);
+
+  // Refresh relative timestamps
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
 
-  // Bootstrap dashboard
+  // Bootstrap
   useEffect(() => {
     let cancelled = false;
     async function bootstrap() {
@@ -625,13 +706,13 @@ export default function DashboardClient() {
     return () => { cancelled = true; };
   }, []);
 
-  // Realtime — new requests
+  // Realtime new requests
   useEffect(() => {
     const channel = supabase
       .channel('dashboard-requests')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
         const entry = payload.new as FeedEntry;
-        setFeed(prev => [entry, ...prev.slice(0, 49)]);
+        setFeed(prev => [entry, ...prev.slice(0, 99)]);
         setAgentStats(prev => upsertRealtimeAgentStats(prev, entry));
         setAgentNameMap(prev => prev[entry.agent_id] ? prev : { ...prev, [entry.agent_id]: entry.agent_id });
       })
@@ -639,10 +720,9 @@ export default function DashboardClient() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Poll /api/hitl every 3s — Supabase Realtime with anon key doesn't reliably
-  // deliver hitl_requests events due to RLS, so polling is more robust.
-  // Poll /api/run every 3s for session status (running, agent_id, started_at).
+  // Combined poll: HITL + run status
   useEffect(() => {
+    const prevRunning = { current: false };
     const poll = setInterval(async () => {
       try {
         const [hitlRes, runRes] = await Promise.all([
@@ -651,26 +731,35 @@ export default function DashboardClient() {
         ]);
         setHitlPending(hitlRes.hitl_requests ?? []);
         setRunStatus(runRes);
-      } catch {
-        // ignore transient errors
-      }
+
+        // Detect run end: mark current in-flight session as ended
+        if (prevRunning.current && !runRes.running) {
+          setSessions(prev => prev.map((s, i) =>
+            i === prev.length - 1 && !s.endedAt ? { ...s, endedAt: new Date().toISOString() } : s
+          ));
+        }
+        prevRunning.current = runRes.running;
+      } catch { /* ignore */ }
     }, 3000);
     return () => clearInterval(poll);
   }, []);
 
-  // Trigger the demo agent — returns an error string or null on success.
   const handleRun = useCallback(async (): Promise<string | null> => {
     try {
       const res = await fetch('/api/run', { method: 'POST' });
       const data = await res.json() as { status?: string; error?: string; hint?: string };
       if (!res.ok) return data.hint ?? data.error ?? 'Failed to start';
-      // Immediately reflect running state (next poll will confirm)
-      setRunStatus(prev => ({ ...prev, running: true, started_at: new Date().toISOString() }));
+
+      const startedAt = new Date().toISOString();
+      const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
+      setSessions(prev => [...prev, newSession]);
+      setActiveSessionId(newSession.id);
+      setRunStatus(prev => ({ ...prev, running: true, started_at: startedAt }));
       return null;
     } catch {
       return 'Agent server offline — run: python -m alcatraz.serve';
     }
-  }, []);
+  }, [sessions.length]);
 
   const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
     await fetch(`/api/hitl/${id}`, {
@@ -678,30 +767,33 @@ export default function DashboardClient() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
-    // Optimistically remove from list
     setHitlPending(prev => prev.filter(r => r.id !== id));
   }, []);
+
+  const selectedAgent = agentStats.find(a => a.id === selectedAgentId) ?? null;
+  const sessionAgentName = runStatus.agent_id ? (agentNameMap[runStatus.agent_id] ?? null) : null;
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
 
-      {/* ── Header ── */}
+      {/* Header */}
       <motion.header
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
+        initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
         className="shrink-0 bg-white border-b border-slate-200 px-8 h-16 flex items-center justify-between"
       >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+            </div>
+            <span className="font-bold text-slate-900 text-lg tracking-tight">Alcatraz</span>
           </div>
-          <span className="font-bold text-slate-900 text-lg tracking-tight">Alcatraz</span>
-          <span className="text-slate-300">·</span>
-          <span className="text-sm text-slate-500">Agent Security</span>
+          <div className="w-px h-5 bg-slate-200" />
+          <AgentSelector agents={agentStats} selectedId={selectedAgentId} onSelect={setSelectedAgentId} />
         </div>
+
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
@@ -716,67 +808,64 @@ export default function DashboardClient() {
       </motion.header>
 
       <div className="flex-1 overflow-hidden min-h-0">
-        <div className="h-full max-w-[1440px] mx-auto px-8 py-6 flex flex-col gap-6">
+        <div className="h-full max-w-[1440px] mx-auto px-8 py-6 flex flex-col gap-5">
 
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.1, duration: 0.4 }}
-            className="shrink-0"
-          >
-            <h1 className="text-2xl font-bold text-slate-900">Security Dashboard</h1>
-            <p className="text-sm text-slate-500 mt-1">Real-time monitoring of your AI agent ecosystem</p>
-          </motion.div>
-
-          {/* ── KPI row ── */}
+          {/* KPI row */}
           <div className="grid grid-cols-4 gap-5 shrink-0">
-            <KpiCard label="Total Requests" value={totalCalls.toLocaleString()} sub="Across all agents" accent="blue" icon={<Icon.Activity />} delay={0.15} />
-            <KpiCard label="Threats Blocked" value={totalBlocked.toLocaleString()} sub={`${blockRate.toFixed(1)}% of all traffic`} accent="red" icon={<Icon.Shield />} delay={0.22} />
-            <KpiCard label="Block Rate" value={`${blockRate.toFixed(1)}%`} sub={blockRate > 3 ? 'Elevated — review recommended' : 'Within normal range'} accent={blockRate > 10 ? 'red' : blockRate > 3 ? 'amber' : 'green'} icon={<Icon.Percent />} delay={0.29} />
-            <KpiCard label="Active Agents" value={`${activeCount} / ${agentStats.length}`} sub="Active in the last 5 min" accent="green" icon={<Icon.Users />} delay={0.36} />
+            <KpiCard label="Total Requests" value={totalCalls.toLocaleString()} sub="Across all agents" accent="blue" icon={<Icon.Activity />} delay={0.1} />
+            <KpiCard label="Threats Blocked" value={totalBlocked.toLocaleString()} sub={`${blockRate.toFixed(1)}% of all traffic`} accent="red" icon={<Icon.Shield />} delay={0.17} />
+            <KpiCard label="Block Rate" value={`${blockRate.toFixed(1)}%`} sub={blockRate > 3 ? 'Elevated — review recommended' : 'Within normal range'} accent={blockRate > 10 ? 'red' : blockRate > 3 ? 'amber' : 'green'} icon={<Icon.Percent />} delay={0.24} />
+            <KpiCard label="Active Agents" value={`${activeCount} / ${agentStats.length}`} sub="Active in the last 5 min" accent="green" icon={<Icon.Users />} delay={0.31} />
           </div>
 
-          {/* ── Main body ── */}
+          {/* Main body */}
           <div className="grid grid-cols-[1fr_300px] gap-5 flex-1 min-h-0">
 
             {/* Live feed */}
             <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.42, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+              initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.36, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
               className="flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
             >
+              {/* Feed header */}
               <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-slate-100">
                 <div>
                   <h2 className="text-sm font-semibold text-slate-800">Live Feed</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Intercepted tool calls, newest first</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {activeSessionId === 'all'
+                      ? `${feed.length} total events`
+                      : `${displayFeed.length} events in this run`}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2.5">
-                  <span className="text-xs text-slate-400">{feed.length} events</span>
-                  <span className="w-px h-4 bg-slate-200" />
                   <span className="relative flex h-1.5 w-1.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
                     <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" />
                   </span>
-                  <span className="text-xs font-medium text-blue-600">Live</span>
+                  <span className="text-xs font-medium text-blue-600">Realtime</span>
                 </div>
               </div>
 
-              <div className="shrink-0 flex items-center gap-4 px-5 py-2.5 bg-slate-50 border-b border-slate-100 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                <span className="w-2 shrink-0" />
-                <span className="w-36 shrink-0">Agent</span>
-                <span className="w-32 shrink-0">Tool</span>
-                <span className="w-20 shrink-0">Status</span>
-                <span className="flex-1">Payload</span>
-                <span className="shrink-0">Time</span>
+              {/* Session tabs */}
+              {sessions.length > 0 && (
+                <SessionTabs sessions={sessions} activeId={activeSessionId} onSelect={setActiveSessionId} />
+              )}
+
+              {/* Column headers */}
+              <div className="shrink-0 grid grid-cols-[16px_1fr_90px_72px_56px] gap-0 items-center px-5 py-2 bg-slate-50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                <span />
+                <span className="px-3">Tool · Payload</span>
+                <span>Agent</span>
+                <span>Severity</span>
+                <span className="text-right">Time</span>
               </div>
 
+              {/* Rows */}
               <div className="flex-1 overflow-y-auto min-h-0">
                 {isLoading ? (
                   <div className="flex flex-col items-center justify-center h-full text-center py-16">
                     <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4"><Icon.Activity /></div>
-                    <p className="text-sm font-medium text-slate-600">Loading requests</p>
-                    <p className="text-xs text-slate-400 mt-1">Pulling the latest intercepted tool calls</p>
+                    <p className="text-sm font-medium text-slate-600">Loading feed</p>
                   </div>
                 ) : error ? (
                   <div className="flex flex-col items-center justify-center h-full text-center py-16 px-6">
@@ -784,24 +873,25 @@ export default function DashboardClient() {
                     <p className="text-sm font-medium text-slate-700">Dashboard load failed</p>
                     <p className="text-xs text-slate-400 mt-1">{error}</p>
                   </div>
-                ) : feed.length === 0 ? (
+                ) : displayFeed.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-center py-16">
                     <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4"><Icon.Activity /></div>
-                    <p className="text-sm font-medium text-slate-600">No requests yet</p>
-                    <p className="text-xs text-slate-400 mt-1">Click "Run Demo Agent" to start</p>
+                    <p className="text-sm font-medium text-slate-600">
+                      {activeSessionId === 'all' ? 'No events yet' : 'No events in this run'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">Click "Run Agent" to start</p>
                   </div>
                 ) : (
                   <AnimatePresence mode="popLayout" initial={false}>
-                    {feed.map(entry => (
+                    {displayFeed.map(entry => (
                       <motion.div
                         key={entry.id}
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
+                        initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0 }}
-                        transition={{ duration: 0.22, ease: 'easeOut' }}
+                        transition={{ duration: 0.18, ease: 'easeOut' }}
                         layout="position"
                       >
-                        <LogRow entry={entry} agentName={agentNameMap[entry.agent_id] ?? entry.agent_id} />
+                        <LogRow entry={entry} agentName={agentNameMap[entry.agent_id] ?? entry.agent_id.slice(0, 8)} />
                       </motion.div>
                     ))}
                   </AnimatePresence>
@@ -809,55 +899,29 @@ export default function DashboardClient() {
               </div>
             </motion.div>
 
-            {/* Agents panel */}
-            <div className="flex flex-col min-h-0 overflow-hidden">
-              {/* Active Session panel — always visible, dark when running */}
-              <SessionPanel
+            {/* Right panel: session + audit */}
+            <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+              <ProjectPanel
                 running={runStatus.running}
-                agentName={sessionAgentName}
+                agentName={sessionAgentName ?? selectedAgent?.name ?? null}
+                agentId={runStatus.agent_id ?? selectedAgentId}
                 startedAt={runStatus.started_at ?? null}
                 sessionEventCount={sessionEventCount}
                 sessionBlockedCount={sessionBlockedCount}
               />
-
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.42, duration: 0.3 }}
-                className="shrink-0 mb-4"
-              >
-                <h2 className="text-sm font-semibold text-slate-800">
-                  Agents <span className="text-slate-400 font-normal">{agentStats.length} registered</span>
-                </h2>
-              </motion.div>
-              <div className="flex-1 overflow-y-auto flex flex-col gap-3 pr-0.5">
-                {isLoading ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
-                    <p className="text-sm text-slate-500">Loading agents</p>
-                  </div>
-                ) : agentStats.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
-                    <p className="text-sm text-slate-500">No agents registered yet</p>
-                  </div>
-                ) : (
-                  agentStats.map((agent, i) => (
-                    <AgentCard key={agent.id} agent={agent} now={now} delay={0.48 + i * 0.07} />
-                  ))
-                )}
+              <div className="flex-1 min-h-0">
+                <AuditPanel agentId={selectedAgentId} agentName={selectedAgent?.name ?? null} />
               </div>
             </div>
+
           </div>
         </div>
       </div>
 
-      {/* ── HITL floating panel ── */}
+      {/* HITL floating panel */}
       <AnimatePresence>
         {hitlPending.length > 0 && (
-          <HitlPanel
-            requests={hitlPending}
-            agentNameMap={agentNameMap}
-            onDecide={handleHitlDecide}
-          />
+          <HitlPanel requests={hitlPending} agentNameMap={agentNameMap} onDecide={handleHitlDecide} />
         )}
       </AnimatePresence>
     </div>
