@@ -21,8 +21,7 @@ def send_log(
     The server logs the request and validates it against the agent's guardrails.
     """
     base_url = alcatraz_url or _DEFAULT_URL
-    icon = STATUS_ICONS.get(status, "•")
-    print(f"  {icon} [ALCATRAZ] {status}: {tool_name} | severity={severity}")
+    # No console output — events flow to the dashboard via Supabase Realtime
 
     if not agent_id:
         # No agent_id → can't call /api/validate (offline/demo mode, skip silently)

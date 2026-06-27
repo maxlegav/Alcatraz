@@ -115,6 +115,21 @@ export interface Request {
 }
 
 // ------------------------------------------------------------------
+// hitl_requests — pending human-in-the-loop approvals
+// ------------------------------------------------------------------
+export type HitlStatus = 'pending' | 'approved' | 'denied';
+
+export interface HitlRequest {
+  id: string;
+  agent_id: string;
+  tool_name: string;
+  tool_input: string;
+  status: HitlStatus;
+  created_at: string;
+  decided_at: string | null;
+}
+
+// ------------------------------------------------------------------
 // insights — pattern analysis results per (agent_id, agent_version)
 // ------------------------------------------------------------------
 export type SuggestionType =
