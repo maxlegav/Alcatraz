@@ -21,6 +21,15 @@ type RunStatus = { online: boolean; running: boolean; agent_id?: string; started
 type RiskLevel = 'critical' | 'high' | 'medium' | 'low';
 type RiskInfo = { level: RiskLevel; reason: string; cvss: number };
 
+// Unified display entry — requests + HITL both rendered in the feed
+type DisplayStatus = 'ALLOWED' | 'BLOCKED' | 'REVIEW';
+type DisplayEntry = {
+  id: string; agent_id: string; tool_name: string;
+  displayStatus: DisplayStatus;
+  severity: string | null; payload: Record<string, unknown> | null;
+  created_at: string; isHitl?: boolean;
+};
+
 // ── Risk assessment ────────────────────────────────────────────────────────────
 function assessRisk(toolName: string, toolInput: string): RiskInfo {
   const name  = toolName.toLowerCase();
@@ -154,8 +163,9 @@ function extractHint(payload: Record<string, unknown> | null): string {
   return '';
 }
 
-function LogRow({ entry, agentName, onClick }: { entry: FeedEntry; agentName: string; onClick: () => void }) {
-  const blocked = entry.status === 'BLOCKED';
+function LogRow({ entry, agentName, onClick }: { entry: DisplayEntry; agentName: string; onClick: () => void }) {
+  const blocked = entry.displayStatus === 'BLOCKED';
+  const review  = entry.displayStatus === 'REVIEW';
   const isSecEv = SECURITY_EVENTS.has(entry.tool_name);
   const hint    = extractHint(entry.payload);
   return (
@@ -163,28 +173,38 @@ function LogRow({ entry, agentName, onClick }: { entry: FeedEntry; agentName: st
       onClick={onClick}
       className={cn(
         'grid items-center gap-0 px-5 py-3 border-b border-slate-100/80 text-xs transition-colors cursor-pointer select-none',
-        'grid-cols-[16px_1fr_90px_72px_56px]',
+        'grid-cols-[8px_1fr_80px_90px_56px]',
         isSecEv ? 'bg-red-50/80 hover:bg-red-50 border-l-[3px] border-l-red-500' :
+        review  ? 'bg-amber-50/60 hover:bg-amber-50/90' :
         blocked ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50',
       )}
     >
-      <span className={cn('h-2 w-2 rounded-full shrink-0', isSecEv ? 'bg-red-600 animate-pulse' : blocked ? 'bg-red-400' : 'bg-emerald-400')} />
+      <span className={cn('h-2 w-2 rounded-full shrink-0', isSecEv ? 'bg-red-600 animate-pulse' : review ? 'bg-amber-400 animate-pulse' : blocked ? 'bg-red-400' : 'bg-emerald-400')} />
       <div className="min-w-0 px-3">
         <div className="flex items-center gap-2">
-          <span className={cn('font-mono font-semibold truncate', isSecEv ? 'text-red-700 text-xs' : blocked ? 'text-slate-800' : 'text-slate-700')}>{entry.tool_name}</span>
+          <span className={cn('font-mono font-semibold truncate', isSecEv ? 'text-red-700' : review ? 'text-amber-700' : blocked ? 'text-slate-800' : 'text-slate-700')}>{entry.tool_name}</span>
           {isSecEv && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-red-600 text-white">Injection</span>}
+          {review   && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500 text-white">HITL</span>}
         </div>
         {hint && <span className="text-[10px] text-slate-400 truncate block mt-0.5 font-mono">{hint}</span>}
       </div>
       <span className="text-[10px] text-slate-400 truncate">{agentName}</span>
-      <span className={cn('text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full text-center', entry.severity ? SEVERITY_STYLE[entry.severity] ?? 'bg-slate-100 text-slate-500' : '')}>{entry.severity ?? ''}</span>
+      {/* Status badge */}
+      <span className={cn('text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full text-center',
+        review  ? 'bg-amber-100 text-amber-700' :
+        blocked ? 'bg-red-100 text-red-700' :
+                  'bg-emerald-100 text-emerald-700'
+      )}>
+        {entry.displayStatus}
+      </span>
       <span className="text-[10px] text-slate-400 tabular-nums text-right font-mono">{formatTime(entry.created_at)}</span>
     </div>
   );
 }
 
-function LogEntryModal({ entry, agentName, onClose }: { entry: FeedEntry; agentName: string; onClose: () => void }) {
-  const blocked  = entry.status === 'BLOCKED';
+function LogEntryModal({ entry, agentName, onClose }: { entry: DisplayEntry; agentName: string; onClose: () => void }) {
+  const blocked  = entry.displayStatus === 'BLOCKED';
+  const review   = entry.displayStatus === 'REVIEW';
   const isSecEv  = SECURITY_EVENTS.has(entry.tool_name);
   const cvss     = cvssRange(entry.severity);
   const hint     = extractHint(entry.payload);
@@ -204,10 +224,10 @@ function LogEntryModal({ entry, agentName, onClose }: { entry: FeedEntry; agentN
         className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg overflow-hidden"
       >
         {/* Header */}
-        <div className={cn('px-5 py-4 border-b flex items-start justify-between gap-3', isSecEv ? 'bg-red-50 border-red-200' : blocked ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-200')}>
+        <div className={cn('px-5 py-4 border-b flex items-start justify-between gap-3', isSecEv ? 'bg-red-50 border-red-200' : review ? 'bg-amber-50 border-amber-200' : blocked ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-200')}>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', blocked ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700')}>{entry.status}</span>
+              <span className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', review ? 'bg-amber-100 text-amber-700' : blocked ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700')}>{entry.displayStatus}</span>
               {entry.severity && <span className={cn('text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', SEVERITY_STYLE[entry.severity])}>{entry.severity}</span>}
               {isSecEv && <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-600 text-white">Injection</span>}
             </div>
@@ -232,7 +252,7 @@ function LogEntryModal({ entry, agentName, onClose }: { entry: FeedEntry; agentN
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-center">
               <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Decision</p>
-              <p className={cn('text-sm font-bold', blocked ? 'text-red-600' : 'text-emerald-600')}>{entry.status}</p>
+              <p className={cn('text-sm font-bold', blocked ? 'text-red-600' : review ? 'text-amber-600' : 'text-emerald-600')}>{entry.displayStatus}</p>
             </div>
           </div>
 
@@ -256,6 +276,12 @@ function LogEntryModal({ entry, agentName, onClose }: { entry: FeedEntry; agentN
             <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5">
               <p className="text-[10px] font-bold uppercase tracking-wider text-red-500 mb-1">Block reason</p>
               <p className="text-xs text-red-700">{isSecEv ? 'Prompt injection detected in tool input — auto-blocked by security engine.' : 'Tool matched a DENY rule configured for this agent.'}</p>
+            </div>
+          )}
+          {review && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1">Pending human review</p>
+              <p className="text-xs text-amber-800">This tool is in the REVIEW list — a human must approve or deny before execution proceeds.</p>
             </div>
           )}
         </div>
@@ -681,7 +707,7 @@ function AgentSelector({ agents, selectedId, onSelect }: { agents: AgentStat[]; 
 // ── Dashboard client ──────────────────────────────────────────────────────────
 export default function DashboardClient() {
   const [now, setNow]                       = useState(() => Date.now());
-  const [feed, setFeed]                     = useState<FeedEntry[]>([]);
+  const [feed, setFeed]                     = useState<DisplayEntry[]>([]);
   const [agentStats, setAgentStats]         = useState<AgentStat[]>([]);
   const [agentNameMap, setAgentNameMap]     = useState<Record<string, string>>({});
   const [isLoading, setIsLoading]           = useState(true);
@@ -691,9 +717,11 @@ export default function DashboardClient() {
   const [sessions, setSessions]             = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>('all');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [selectedEntry, setSelectedEntry]   = useState<FeedEntry | null>(null);
+  const [selectedEntry, setSelectedEntry]   = useState<DisplayEntry | null>(null);
   const [reportToast, setReportToast]       = useState<{ href: string } | null>(null);
-  const prevRunning = useRef(false);
+  const prevRunning  = useRef(false);
+  // Only show events that happened after the first Run click in this browser session
+  const sessionEpoch = useRef<string | null>(null);
 
   // Derived stats
   const totalCalls   = agentStats.reduce((s, a) => s + a.totalCalls,   0);
@@ -719,6 +747,32 @@ export default function DashboardClient() {
     return feed.filter(e => { const t = new Date(e.created_at).getTime(); return t >= start && t <= end; });
   }, [feed, sessions, activeSessionId]);
 
+  // Helper: convert raw requests + hitl into DisplayEntry[]
+  const buildDisplayFeed = useCallback((
+    requests: Array<{ id: string; agent_id: string; tool_name: string; status: string; severity: string | null; payload: Record<string,unknown>|null; created_at: string }>,
+    hitlAll:  HitlRequest[],
+  ): DisplayEntry[] => {
+    const reqEntries: DisplayEntry[] = requests.map(r => ({
+      id: r.id, agent_id: r.agent_id, tool_name: r.tool_name,
+      displayStatus: r.status as DisplayStatus,
+      severity: r.severity, payload: r.payload, created_at: r.created_at,
+    }));
+    const hitlEntries: DisplayEntry[] = hitlAll
+      .filter(h => h.status === 'pending')
+      .map(h => ({
+        id: `hitl-${h.id}`, agent_id: h.agent_id, tool_name: h.tool_name,
+        displayStatus: 'REVIEW' as DisplayStatus,
+        severity: null, payload: { input: h.tool_input }, created_at: h.created_at,
+        isHitl: true,
+      }));
+    // Merge and sort newest first, deduplicated by id
+    const all = [...reqEntries, ...hitlEntries].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const seen = new Set<string>();
+    return all.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+  }, []);
+
   useEffect(() => {
     if (selectedAgentId === null && agentStats.length > 0) setSelectedAgentId(agentStats[0].id);
   }, [agentStats, selectedAgentId]);
@@ -737,7 +791,7 @@ export default function DashboardClient() {
         if (cancelled) return;
         setAgentStats(data.agentStats);
         setAgentNameMap(data.agentNameMap);
-        setFeed(data.feed);
+        setFeed([]); // feed starts empty; populated by polling after first Run click
         setHitlPending(hitlRes.hitl_requests ?? []);
         setError(null);
       } catch (err) {
@@ -750,28 +804,59 @@ export default function DashboardClient() {
     return () => { cancelled = true; };
   }, []);
 
-  // Realtime new requests
+  // Primary live feed: HTTP polling every 2 s
+  // (Realtime is unreliable due to RLS on anon key — polling is the source of truth)
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      if (!sessionEpoch.current) return; // nothing started yet
+      try {
+        const [reqRes, hitlRes] = await Promise.all([
+          fetch(`/api/requests?limit=500&since=${encodeURIComponent(sessionEpoch.current)}`).then(r => r.json()) as Promise<{ requests?: Array<{ id: string; agent_id: string; tool_name: string; status: string; severity: string|null; payload: Record<string,unknown>|null; created_at: string }> }>,
+          fetch('/api/hitl').then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
+        ]);
+        const requests = reqRes.requests ?? [];
+        const hitlAll  = hitlRes.hitl_requests ?? [];
+
+        setHitlPending(hitlAll.filter(h => h.status === 'pending'));
+
+        // Rebuild full feed from current session
+        const newFeed = buildDisplayFeed(requests, hitlAll);
+        setFeed(newFeed);
+
+        // Keep agentStats in sync
+        setAgentStats(prev => {
+          let updated = prev;
+          for (const r of requests) {
+            updated = upsertRealtimeAgentStats(updated, { ...r, status: r.status as 'ALLOWED'|'BLOCKED' });
+          }
+          return updated;
+        });
+        setAgentNameMap(prev => {
+          const next = { ...prev };
+          for (const r of requests) { if (!next[r.agent_id]) next[r.agent_id] = r.agent_id; }
+          return next;
+        });
+      } catch { /* ignore network errors */ }
+    }, 2000);
+    return () => clearInterval(poll);
+  }, [buildDisplayFeed]);
+
+  // Secondary: Realtime as bonus (best-effort, may be blocked by RLS)
   useEffect(() => {
     const channel = supabase.channel('dashboard-requests')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
-        const entry = payload.new as FeedEntry;
-        setFeed(prev => [entry, ...prev.slice(0, 99)]);
-        setAgentStats(prev => upsertRealtimeAgentStats(prev, entry));
-        setAgentNameMap(prev => prev[entry.agent_id] ? prev : { ...prev, [entry.agent_id]: entry.agent_id });
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, () => {
+        // Realtime triggers an immediate poll refresh — no processing here
+        // (the interval above will pick it up within 2 s anyway)
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Poll: HITL + run status + detect run completion
+  // Poll: run status + detect run completion
   useEffect(() => {
     const poll = setInterval(async () => {
       try {
-        const [hitlRes, runRes] = await Promise.all([
-          fetch('/api/hitl').then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
-          fetch('/api/run').then(r => r.json()) as Promise<RunStatus>,
-        ]);
-        setHitlPending(hitlRes.hitl_requests ?? []);
+        const runRes = await fetch('/api/run').then(r => r.json()) as RunStatus;
         setRunStatus(runRes);
 
         if (prevRunning.current && !runRes.running) {
@@ -798,7 +883,9 @@ export default function DashboardClient() {
       const res  = await fetch('/api/run', { method: 'POST' });
       const data = await res.json() as { status?: string; error?: string; hint?: string };
       if (!res.ok) return data.hint ?? data.error ?? 'Failed to start';
-      const startedAt  = new Date().toISOString();
+      const startedAt = new Date().toISOString();
+      // Set the epoch so polling starts collecting events from now
+      if (!sessionEpoch.current) sessionEpoch.current = startedAt;
       const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
       setSessions(prev => [...prev, newSession]);
       setActiveSessionId(newSession.id);
@@ -881,8 +968,8 @@ export default function DashboardClient() {
 
               {sessions.length > 0 && <SessionTabs sessions={sessions} activeId={activeSessionId} onSelect={setActiveSessionId} />}
 
-              <div className="shrink-0 grid grid-cols-[16px_1fr_90px_72px_56px] gap-0 items-center px-5 py-2 bg-slate-50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                <span /><span className="px-3">Tool · Payload</span><span>Agent</span><span>Severity</span><span className="text-right">Time</span>
+              <div className="shrink-0 grid grid-cols-[8px_1fr_80px_90px_56px] gap-0 items-center px-5 py-2 bg-slate-50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                <span /><span className="px-3">Tool · Payload</span><span>Agent</span><span>Status</span><span className="text-right">Time</span>
               </div>
 
               <div className="flex-1 overflow-y-auto min-h-0">
@@ -891,7 +978,13 @@ export default function DashboardClient() {
                 ) : error ? (
                   <div className="flex flex-col items-center justify-center h-full text-center py-16 px-6"><div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mb-4"><Icon.Shield /></div><p className="text-sm font-medium text-slate-700">Dashboard load failed</p><p className="text-xs text-slate-400 mt-1">{error}</p></div>
                 ) : displayFeed.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center py-16"><div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4"><Icon.Activity /></div><p className="text-sm font-medium text-slate-600">{activeSessionId === 'all' ? 'No events yet' : 'No events in this run'}</p><p className="text-xs text-slate-400 mt-1">Click "Run Agent" to start</p></div>
+                  <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4"><Icon.Activity /></div>
+                    <p className="text-sm font-medium text-slate-600">{activeSessionId === 'all' ? 'No events yet' : 'No events in this run'}</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
+                      {sessionEpoch.current ? 'Agent is starting — events will appear here in real time' : 'Click "Run Agent" to launch — all tool calls will stream here live'}
+                    </p>
+                  </div>
                 ) : (
                   <AnimatePresence mode="popLayout" initial={false}>
                     {displayFeed.map(entry => (
@@ -912,7 +1005,7 @@ export default function DashboardClient() {
                 agentId={runStatus.agent_id ?? selectedAgentId}
                 startedAt={runStatus.started_at ?? null}
                 sessionEventCount={sessionFeed.length}
-                sessionBlockedCount={sessionFeed.filter(e => e.status === 'BLOCKED').length}
+                sessionBlockedCount={sessionFeed.filter(e => e.displayStatus === 'BLOCKED').length}
               />
               <div className="flex-1 min-h-0 flex flex-col">
                 <GuardrailsPanel agentId={selectedAgentId} />

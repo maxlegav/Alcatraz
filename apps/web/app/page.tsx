@@ -49,6 +49,11 @@ function StepSetup({ onNext }: { onNext: () => void }) {
   const setCheck = (i: number, patch: Partial<CheckStep>) =>
     setChecks(prev => prev.map((c, idx) => idx === i ? { ...c, ...patch } : c));
 
+  // Reset all DB data at the start of every onboarding session
+  useEffect(() => {
+    fetch('/api/reset', { method: 'POST' }).catch(() => {});
+  }, []);
+
   const verify = async () => {
     setPhase('running');
 

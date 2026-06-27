@@ -8,11 +8,12 @@ import { supabaseAdmin } from "@/lib/supabase/server";
  * Used by the dashboard — no Bearer auth required (admin-level server route).
  *
  * Query params:
- *   limit     number   max rows to return (default: 50, max: 200)
+ *   limit     number   max rows to return (default: 50, max: 500)
  *   offset    number   rows to skip for pagination (default: 0)
  *   agent_id  string   filter by agent UUID
  *   status    string   filter by ALLOWED | BLOCKED
  *   severity  string   filter by critical | high | medium | low
+ *   since     string   ISO timestamp — only return rows created after this time
  *
  * Response:
  *   { requests: Request[], total: number }
@@ -20,11 +21,12 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
 
-  const limit    = Math.min(parseInt(searchParams.get("limit")  ?? "50", 10), 200);
+  const limit    = Math.min(parseInt(searchParams.get("limit")  ?? "50", 10), 500);
   const offset   = Math.max(parseInt(searchParams.get("offset") ?? "0",  10), 0);
   const agentId  = searchParams.get("agent_id");
   const status   = searchParams.get("status");
   const severity = searchParams.get("severity");
+  const since    = searchParams.get("since");
 
   let query = supabaseAdmin
     .from("requests")
@@ -37,6 +39,7 @@ export async function GET(req: NextRequest) {
   if (agentId)  query = query.eq("agent_id", agentId);
   if (status)   query = query.eq("status", status.toUpperCase());
   if (severity) query = query.eq("severity", severity.toLowerCase());
+  if (since)    query = query.gt("created_at", since);
 
   const { data, count, error } = await query;
 
