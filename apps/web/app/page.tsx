@@ -185,9 +185,9 @@ function StepScan({ onNext, onResult }: { onNext: () => void; onResult: (r: Scan
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-white mb-1">Security Scan</h2>
+        <h2 className="text-xl font-semibold text-white mb-1">Red Team Scan</h2>
         <p className="text-sm text-slate-400">
-          Your agent is analyzed by our internal security model to detect vulnerabilities and generate protection rules.
+          An internal red team agent attacks your agent source code to find exploitable vulnerabilities — then generates the protection rules automatically.
         </p>
       </div>
 
@@ -398,7 +398,28 @@ function Label({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{children}</p>;
 }
 function CodeBlock({ children }: { children: string }) {
-  return <pre className="rounded-xl bg-slate-900 border border-slate-700 px-4 py-3 text-xs font-mono text-emerald-300 leading-5 overflow-x-auto whitespace-pre-wrap">{children}</pre>;
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(children).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <div className="relative group">
+      <pre className="rounded-xl bg-slate-900 border border-slate-700 px-4 py-3 pr-10 text-xs font-mono text-emerald-300 leading-5 overflow-x-auto whitespace-pre-wrap">{children}</pre>
+      <button
+        onClick={copy}
+        title="Copy"
+        className="absolute top-2 right-2 p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 opacity-0 group-hover:opacity-100 hover:text-white hover:bg-slate-700 transition-all"
+      >
+        {copied
+          ? <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+          : <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+        }
+      </button>
+    </div>
+  );
 }
 function Spinner() {
   return (

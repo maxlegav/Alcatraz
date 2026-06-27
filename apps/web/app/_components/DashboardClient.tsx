@@ -836,11 +836,30 @@ export default function DashboardClient() {
       const newFeed = buildDisplayFeed(requests, hitlAll);
       setFeed(newFeed);
 
-      // Keep agentStats in sync
+      // Recompute agentStats from scratch (not incrementally) to avoid double-counting
       setAgentStats(prev => {
-        let updated = prev;
+        // Build a stats map from the current full request list
+        const statsMap = new Map<string, { total: number; blocked: number; lastActive: string | null }>();
         for (const r of requests) {
-          updated = upsertRealtimeAgentStats(updated, { ...r, status: r.status as 'ALLOWED'|'BLOCKED' });
+          const cur = statsMap.get(r.agent_id) ?? { total: 0, blocked: 0, lastActive: null };
+          statsMap.set(r.agent_id, {
+            total:      cur.total + 1,
+            blocked:    cur.blocked + (r.status === 'BLOCKED' ? 1 : 0),
+            lastActive: r.created_at,
+          });
+        }
+        const knownIds = new Set(prev.map(a => a.id));
+        const updated = prev.map(agent => {
+          const s = statsMap.get(agent.id);
+          return s
+            ? { ...agent, totalCalls: s.total, blockedCalls: s.blocked, lastActive: s.lastActive }
+            : { ...agent, totalCalls: 0, blockedCalls: 0 };
+        });
+        // Agents seen in requests but not yet in the list
+        for (const [agentId, s] of statsMap) {
+          if (!knownIds.has(agentId)) {
+            updated.push({ id: agentId, name: agentId, totalCalls: s.total, blockedCalls: s.blocked, lastActive: s.lastActive, latestInsight: null });
+          }
         }
         return updated;
       });
