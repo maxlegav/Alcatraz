@@ -91,8 +91,10 @@ def scan(file_path: str, api_key: str, output: str, raw_json: bool):
     # ── Vulnerabilities table ─────────────────────────────────────────────────
     table = Table(box=box.ROUNDED, border_style="dim", header_style="bold", show_header=True)
     table.add_column("Severity", width=14, no_wrap=True)
-    table.add_column("Type", width=30)
-    table.add_column("Location", width=22)
+    table.add_column("CVSS", width=6, no_wrap=True)
+    table.add_column("CWE", width=10, no_wrap=True)
+    table.add_column("Type", width=28)
+    table.add_column("Location", width=20)
     table.add_column("Description")
 
     sorted_vulns = sorted(
@@ -106,8 +108,13 @@ def scan(file_path: str, api_key: str, output: str, raw_json: bool):
         sev = v.get("severity", "low")
         color = _SEVERITY_COLOR.get(sev, "white")
         icon = _SEVERITY_ICON.get(sev, "⚪")
+        cvss = v.get("cvss_score")
+        cvss_str = f"{cvss:.1f}" if isinstance(cvss, (int, float)) else str(cvss) if cvss else "N/A"
+        cwe = v.get("cwe_id", "")
         table.add_row(
             f"[{color}]{icon} {sev.upper()}[/{color}]",
+            f"[{color}]{cvss_str}[/{color}]",
+            f"[dim]{cwe}[/dim]",
             f"[bold]{v.get('type', '')}[/bold]",
             f"[dim]{v.get('location', '')}[/dim]",
             v.get("description", ""),
