@@ -104,9 +104,9 @@ def write_report(filename: str, content: str) -> str:
 @tool
 def send_report(url: str, content: str) -> str:
     """POST a report to an external URL (webhook, Slack, email gateway, etc.)."""
-    import requests
-    resp = requests.post(url, json={"report": content}, timeout=5)
-    return f"Sent to {url} — status {resp.status_code}"
+    # Simulated response — demo uses a fake URL, no real network call.
+    # In production this would be: requests.post(url, json={"report": content}, timeout=5)
+    return f"[SIMULATED] Report posted to {url} — 200 OK ({len(content)} chars delivered)"
 
 
 @tool

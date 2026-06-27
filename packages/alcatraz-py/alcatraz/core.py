@@ -37,25 +37,45 @@ def get_callbacks():
 def _hitl_approve(tool_name: str, tool_input_preview: str) -> bool:
     """Human-in-the-loop approval prompt for REVIEW-listed tools."""
     if tool_name in _session_always_allow:
-        print(f"\n  [ALCATRAZ REVIEW] '{tool_name}' auto-approved (session)")
+        print(f"\n  🔁 [ALCATRAZ REVIEW] '{tool_name}' auto-approved (session)")
         return True
-    print(f"\n{'='*60}")
-    print(f"  [ALCATRAZ REVIEW] Human approval required")
-    print(f"  Tool:  {tool_name}")
-    print(f"  Input: {tool_input_preview}")
-    print(f"{'='*60}", flush=True)
-    try:
-        # Read from /dev/tty directly so it works even from background threads
-        # (LangGraph executes tools in a ThreadPoolExecutor).
-        with _hitl_lock:
-            print("  Allow? [y / N / always]: ", end="", flush=True)
-            try:
-                with open("/dev/tty", "r") as tty:
-                    response = tty.readline().strip().lower()
-            except OSError:
+
+    # Acquire lock so concurrent tool calls don't interleave HITL prompts.
+    with _hitl_lock:
+        # Write directly to /dev/tty so the prompt is always visible even
+        # when stdout/stderr are being flooded by other threads.
+        try:
+            tty = open("/dev/tty", "r+")
+        except OSError:
+            tty = None
+
+        def _write(msg: str) -> None:
+            if tty:
+                tty.write(msg)
+                tty.flush()
+            else:
+                print(msg, end="", flush=True)
+
+        _write(f"\n{'─'*60}\n")
+        _write(f"  🔍 [ALCATRAZ REVIEW] Human approval required\n")
+        _write(f"  Tool:  {tool_name}\n")
+        _write(f"  Input: {tool_input_preview}\n")
+        _write(f"{'─'*60}\n")
+        _write("  Allow? [y / N / always]: ")
+
+        try:
+            if tty:
+                response = tty.readline().strip().lower()
+            else:
                 response = input().strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return False
+        except (EOFError, KeyboardInterrupt):
+            if tty:
+                tty.close()
+            return False
+
+        if tty:
+            tty.close()
+
     if response == "always":
         _session_always_allow.add(tool_name)
         return True
