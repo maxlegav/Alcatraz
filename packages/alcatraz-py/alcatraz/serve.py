@@ -29,7 +29,7 @@ _state: dict = {"running": False}
 
 # Resolve demo script path relative to this file
 _DEMO_SCRIPT = (
-    Path(__file__).parent.parent.parent / "demo" / "langchain" / "research_agent.py"
+    Path(__file__).parent.parent.parent.parent / "demo" / "langchain" / "research_agent.py"
 )
 
 
