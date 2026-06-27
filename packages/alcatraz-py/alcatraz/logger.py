@@ -34,6 +34,7 @@ def send_log(
             json={
                 "agent_id": agent_id,
                 "tool_name": tool_name,
+                "severity": severity,
                 "payload": payload or {},
             },
             headers={"Authorization": f"Bearer {api_key}"},
