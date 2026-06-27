@@ -11,6 +11,7 @@ Usage:
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import datetime
 import json
 import os
 import subprocess
@@ -25,7 +26,11 @@ try:
 except ImportError:
     pass
 
-_state: dict = {"running": False}
+_state: dict = {
+    "running": False,
+    "agent_id": os.environ.get("ALCATRAZ_AGENT_ID"),
+    "started_at": None,
+}
 
 # Resolve demo script path relative to this file
 _DEMO_SCRIPT = (
@@ -43,6 +48,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(409, {"error": "Agent already running"})
                 return
             _state["running"] = True
+            _state["started_at"] = datetime.datetime.utcnow().isoformat() + "Z"
             threading.Thread(target=_run_agent, daemon=True).start()
             self._send(200, {"status": "started"})
         else:
@@ -50,7 +56,11 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/status":
-            self._send(200, {"running": _state["running"]})
+            self._send(200, {
+                "running": _state["running"],
+                "agent_id": _state.get("agent_id"),
+                "started_at": _state.get("started_at"),
+            })
         else:
             self._send(404, {"error": "Not found"})
 
@@ -70,6 +80,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 def _run_agent():
     """Run the demo agent silently — output goes to dashboard, not terminal."""
+    agent_id = _state.get("agent_id") or "unknown"
+    print(f"[Alcatraz] ▶  Agent started  — {agent_id}", flush=True)
     try:
         subprocess.run(
             [sys.executable, str(_DEMO_SCRIPT)],
@@ -78,14 +90,18 @@ def _run_agent():
         )
     finally:
         _state["running"] = False
+        _state["started_at"] = None
+        print(f"[Alcatraz] ■  Agent finished — {agent_id}", flush=True)
 
 
 def main():
     port = int(os.environ.get("ALCATRAZ_SERVE_PORT", 8001))
     HTTPServer.allow_reuse_address = True
     server = HTTPServer(("localhost", port), _Handler)
+    agent_id = _state.get("agent_id") or "not set"
     print(f"[Alcatraz] Agent server → http://localhost:{port}")
     print(f"[Alcatraz] Dashboard   → http://localhost:3000")
+    print(f"[Alcatraz] Agent ID    → {agent_id}")
     print(f"[Alcatraz] Waiting for Run request from dashboard...")
     server.serve_forever()
 

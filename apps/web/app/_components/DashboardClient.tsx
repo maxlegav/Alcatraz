@@ -405,51 +405,32 @@ function AgentCard({ agent, now, delay }: { agent: AgentStat; now: number; delay
 }
 
 // ── Run Agent button ──────────────────────────────────────────────────────────
-function RunButton() {
-  const [state, setState] = useState<'idle' | 'running' | 'error'>('idle');
+function RunButton({ isRunning, onRun }: { isRunning: boolean; onRun: () => Promise<string | null> }) {
   const [error, setError] = useState('');
 
-  const run = async () => {
-    if (state === 'running') return;
-    setState('running');
+  const handleClick = async () => {
+    if (isRunning) return;
     setError('');
-    try {
-      const res = await fetch('/api/run', { method: 'POST' });
-      const data = await res.json() as { status?: string; error?: string; hint?: string };
-      if (!res.ok) {
-        setError(data.hint ?? data.error ?? 'Failed');
-        setState('error');
-        setTimeout(() => setState('idle'), 5000);
-      } else {
-        // Stay in "running" state — polling /api/run will clear it
-        const poll = setInterval(async () => {
-          const s = await fetch('/api/run').then(r => r.json()) as { running?: boolean };
-          if (!s.running) {
-            clearInterval(poll);
-            setState('idle');
-          }
-        }, 3000);
-      }
-    } catch {
-      setError('Agent server offline — run: python -m alcatraz.serve');
-      setState('error');
-      setTimeout(() => setState('idle'), 6000);
+    const err = await onRun();
+    if (err) {
+      setError(err);
+      setTimeout(() => setError(''), 6000);
     }
   };
 
   return (
     <div className="flex flex-col items-end gap-1">
       <button
-        onClick={run}
-        disabled={state === 'running'}
+        onClick={handleClick}
+        disabled={isRunning}
         className={cn(
           'flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all',
-          state === 'running' ? 'bg-amber-100 text-amber-700 cursor-not-allowed' :
-          state === 'error'   ? 'bg-red-100 text-red-700' :
+          isRunning ? 'bg-amber-100 text-amber-700 cursor-not-allowed' :
+          error      ? 'bg-red-100 text-red-700' :
           'bg-blue-600 hover:bg-blue-700 text-white shadow-sm',
         )}
       >
-        {state === 'running' ? (
+        {isRunning ? (
           <>
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75" />
@@ -464,12 +445,127 @@ function RunButton() {
           </>
         )}
       </button>
-      {state === 'error' && (
+      {error && (
         <p className="text-[10px] text-red-500 max-w-[220px] text-right leading-4">{error}</p>
       )}
     </div>
   );
 }
+
+// ── Active Session panel ───────────────────────────────────────────────────────
+function SessionPanel({
+  running,
+  agentName,
+  startedAt,
+  sessionEventCount,
+  sessionBlockedCount,
+}: {
+  running: boolean;
+  agentName: string | null;
+  startedAt: string | null;
+  sessionEventCount: number;
+  sessionBlockedCount: number;
+}) {
+  const [elapsed, setElapsed] = useState('');
+
+  useEffect(() => {
+    if (!startedAt) { setElapsed(''); return; }
+    const update = () => {
+      const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+      if (secs < 60) setElapsed(`${secs}s`);
+      else setElapsed(`${Math.floor(secs / 60)}m ${secs % 60}s`);
+    };
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, [startedAt]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: 0.4, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className={cn(
+        'rounded-2xl border shadow-sm p-4 mb-3 transition-colors duration-500',
+        running
+          ? 'bg-blue-950 border-blue-700'
+          : 'bg-white border-slate-200',
+      )}
+    >
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-3">
+        <span className={cn('text-[10px] font-bold uppercase tracking-wider', running ? 'text-blue-300' : 'text-slate-400')}>
+          Active Session
+        </span>
+        <div className="flex items-center gap-1.5">
+          {running ? (
+            <>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+              </span>
+              <span className="text-[10px] font-semibold text-blue-300">RUNNING</span>
+            </>
+          ) : (
+            <>
+              <span className="h-2 w-2 rounded-full bg-slate-300" />
+              <span className="text-[10px] font-semibold text-slate-400">IDLE</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Agent name */}
+      <p className={cn('text-sm font-semibold truncate mb-3', running ? 'text-white' : 'text-slate-800')}>
+        {agentName ?? 'AI Customer Research Agent'}
+      </p>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className={cn('rounded-xl p-2.5 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
+          <p className={cn('text-[10px] font-medium mb-1', running ? 'text-blue-400' : 'text-slate-400')}>Elapsed</p>
+          <p className={cn('text-sm font-bold tabular-nums', running ? 'text-white' : 'text-slate-500')}>
+            {running && elapsed ? elapsed : '—'}
+          </p>
+        </div>
+        <div className={cn('rounded-xl p-2.5 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
+          <p className={cn('text-[10px] font-medium mb-1', running ? 'text-blue-400' : 'text-slate-400')}>Events</p>
+          <p className={cn('text-sm font-bold tabular-nums', running ? 'text-white' : 'text-slate-500')}>
+            {sessionEventCount > 0 ? sessionEventCount : '—'}
+          </p>
+        </div>
+        <div className={cn('rounded-xl p-2.5 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
+          <p className={cn('text-[10px] font-medium mb-1', running ? 'text-blue-400' : 'text-slate-400')}>Blocked</p>
+          <p className={cn('text-sm font-bold tabular-nums', running && sessionBlockedCount > 0 ? 'text-red-400' : running ? 'text-white' : 'text-slate-500')}>
+            {sessionEventCount > 0 ? sessionBlockedCount : '—'}
+          </p>
+        </div>
+      </div>
+
+      {/* Demo info */}
+      {!running && (
+        <p className="text-[10px] text-slate-400 leading-4">
+          LangChain research agent · Supabase Realtime · HITL approvals
+        </p>
+      )}
+      {running && (
+        <div className="rounded-xl bg-blue-900/40 border border-blue-800 px-3 py-2">
+          <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider mb-1">Demo scenario</p>
+          <p className="text-[11px] text-blue-200 leading-4">
+            AI research agent · web_search → database_query → send_report
+          </p>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+type RunStatus = {
+  online: boolean;
+  running: boolean;
+  agent_id?: string;
+  started_at?: string;
+};
 
 // ── Dashboard client ──────────────────────────────────────────────────────────
 export default function DashboardClient() {
@@ -480,6 +576,7 @@ export default function DashboardClient() {
   const [isLoading, setIsLoading]     = useState(true);
   const [error, setError]             = useState<string | null>(null);
   const [hitlPending, setHitlPending] = useState<HitlRequest[]>([]);
+  const [runStatus, setRunStatus]     = useState<RunStatus>({ online: false, running: false });
 
   const totalCalls   = agentStats.reduce((s, a) => s + a.totalCalls,   0);
   const totalBlocked = agentStats.reduce((s, a) => s + a.blockedCalls, 0);
@@ -487,6 +584,15 @@ export default function DashboardClient() {
   const activeCount  = agentStats.filter(
     a => a.lastActive && now - new Date(a.lastActive).getTime() < 300_000
   ).length;
+
+  // Session-scoped event counts (entries after the session started_at)
+  const sessionStarted = runStatus.started_at ? new Date(runStatus.started_at).getTime() : null;
+  const sessionFeed    = sessionStarted
+    ? feed.filter(e => new Date(e.created_at).getTime() >= sessionStarted)
+    : [];
+  const sessionEventCount   = sessionFeed.length;
+  const sessionBlockedCount = sessionFeed.filter(e => e.status === 'BLOCKED').length;
+  const sessionAgentName    = runStatus.agent_id ? (agentNameMap[runStatus.agent_id] ?? null) : null;
 
   // Refresh relative timestamps every 30s
   useEffect(() => {
@@ -535,18 +641,35 @@ export default function DashboardClient() {
 
   // Poll /api/hitl every 3s — Supabase Realtime with anon key doesn't reliably
   // deliver hitl_requests events due to RLS, so polling is more robust.
+  // Poll /api/run every 3s for session status (running, agent_id, started_at).
   useEffect(() => {
     const poll = setInterval(async () => {
       try {
-        const res = await fetch('/api/hitl');
-        const data = await res.json() as { hitl_requests?: HitlRequest[] };
-        const pending = data.hitl_requests ?? [];
-        setHitlPending(pending);
+        const [hitlRes, runRes] = await Promise.all([
+          fetch('/api/hitl').then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
+          fetch('/api/run').then(r => r.json()) as Promise<RunStatus>,
+        ]);
+        setHitlPending(hitlRes.hitl_requests ?? []);
+        setRunStatus(runRes);
       } catch {
         // ignore transient errors
       }
     }, 3000);
     return () => clearInterval(poll);
+  }, []);
+
+  // Trigger the demo agent — returns an error string or null on success.
+  const handleRun = useCallback(async (): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/run', { method: 'POST' });
+      const data = await res.json() as { status?: string; error?: string; hint?: string };
+      if (!res.ok) return data.hint ?? data.error ?? 'Failed to start';
+      // Immediately reflect running state (next poll will confirm)
+      setRunStatus(prev => ({ ...prev, running: true, started_at: new Date().toISOString() }));
+      return null;
+    } catch {
+      return 'Agent server offline — run: python -m alcatraz.serve';
+    }
   }, []);
 
   const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
@@ -588,7 +711,7 @@ export default function DashboardClient() {
             <span className="text-xs font-medium text-emerald-600">Live</span>
           </div>
           <div className="w-px h-5 bg-slate-200" />
-          <RunButton />
+          <RunButton isRunning={runStatus.running} onRun={handleRun} />
         </div>
       </motion.header>
 
@@ -688,6 +811,15 @@ export default function DashboardClient() {
 
             {/* Agents panel */}
             <div className="flex flex-col min-h-0 overflow-hidden">
+              {/* Active Session panel — always visible, dark when running */}
+              <SessionPanel
+                running={runStatus.running}
+                agentName={sessionAgentName}
+                startedAt={runStatus.started_at ?? null}
+                sessionEventCount={sessionEventCount}
+                sessionBlockedCount={sessionBlockedCount}
+              />
+
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
