@@ -82,6 +82,7 @@ def _run_agent():
 
 def main():
     port = int(os.environ.get("ALCATRAZ_SERVE_PORT", 8001))
+    HTTPServer.allow_reuse_address = True
     server = HTTPServer(("localhost", port), _Handler)
     print(f"[Alcatraz] Agent server → http://localhost:{port}")
     print(f"[Alcatraz] Dashboard   → http://localhost:3000")
