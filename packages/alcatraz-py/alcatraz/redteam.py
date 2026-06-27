@@ -4,29 +4,25 @@ import anthropic
 
 _SYSTEM = "Tu es un expert en cybersécurité spécialisé dans les agents IA."
 
-_PROMPT = """Analyse ce code d'agent IA et identifie toutes les vulnérabilités.
-
-CODE À ANALYSER :
-{code}
-
+_INSTRUCTIONS = """
 Réponds UNIQUEMENT en JSON valide avec ce format exact (aucun texte avant ou après) :
-{{
+{
   "vulnerabilities": [
-    {{
+    {
       "severity": "critical|high|medium|low",
       "type": "nom de la vulnérabilité",
       "description": "ce qui peut arriver",
       "location": "où dans le code",
       "fix": "comment corriger"
-    }}
+    }
   ],
-  "rules": {{
+  "rules": {
     "DENY": ["liste des outils/actions à bloquer"],
     "ALLOW": ["liste des outils autorisés"],
     "MAX_CALLS_PER_MIN": 10
-  }},
+  },
   "risk_score": 0
-}}
+}
 
 Focus sur :
 1. Accès à des fichiers sensibles (.env, /etc, clés API)
@@ -55,12 +51,22 @@ def scan(file_path: str, anthropic_api_key: str = None) -> dict:
     with open(file_path, "r", encoding="utf-8") as f:
         code = f.read()
 
+    # Build prompt by concatenation — avoids str.format() misinterpreting
+    # { } characters that appear inside the scanned code.
+    user_content = (
+        "Analyse ce code d'agent IA et identifie toutes les vulnérabilités.\n\n"
+        "CODE À ANALYSER :\n"
+        + code
+        + "\n"
+        + _INSTRUCTIONS
+    )
+
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2048,
+        max_tokens=4096,
         system=_SYSTEM,
-        messages=[{"role": "user", "content": _PROMPT.format(code=code)}],
+        messages=[{"role": "user", "content": user_content}],
     )
 
     text = message.content[0].text if message.content else ""

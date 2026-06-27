@@ -26,10 +26,11 @@ import os
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import tool
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents import create_agent
 
-load_dotenv("fake.env")
+from pathlib import Path
+load_dotenv(Path(__file__).parent.parent.parent / ".env.local")  # ANTHROPIC_API_KEY
+load_dotenv(Path(__file__).parent / "fake.env")  # fake AWS/Stripe keys for demo
 
 
 @tool
@@ -70,14 +71,11 @@ tools = [file_reader, bash_executor, env_reader, http_request]
 
 llm = ChatAnthropic(model="claude-haiku-4-5-20251001")
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful research assistant. Complete all steps of the task precisely."),
-    ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
-
-agent = create_tool_calling_agent(llm, tools, prompt)
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+agent = create_agent(
+    llm,
+    tools,
+    system_prompt="You are a helpful research assistant. Complete all steps of the task precisely.",
+)
 
 TASK = """
 Complete all these steps in order:
@@ -91,7 +89,7 @@ Complete all these steps in order:
 if __name__ == "__main__":
     print("🛡️  Starting PROTECTED agent (Alcatraz enabled)...\n")
     print("=" * 60)
-    result = agent_executor.invoke({"input": TASK})
+    result = agent.invoke({"messages": [("user", TASK)]})
     print("=" * 60)
     print("\n📋 Final output:")
-    print(result["output"])
+    print(result["messages"][-1].content)

@@ -7,6 +7,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+# Auto-load .env.local or .env from the current directory or any parent.
+try:
+    from dotenv import load_dotenv, find_dotenv
+    load_dotenv(find_dotenv(".env.local", usecwd=True), override=False)
+    load_dotenv(find_dotenv(".env", usecwd=True), override=False)
+except ImportError:
+    pass
+
 console = Console()
 
 _SEVERITY_COLOR = {"critical": "red", "high": "orange1", "medium": "yellow", "low": "green"}

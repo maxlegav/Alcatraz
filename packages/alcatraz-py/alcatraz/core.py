@@ -45,11 +45,16 @@ def _patch_langchain() -> None:
             )
 
             if not allowed:
-                # Soft block: return an error string so the LLM sees the block
-                # and the agent keeps running (other tools still work).
-                return (
-                    f"[ALCATRAZ BLOCKED] '{tool_name}' is denied by your security policy. "
-                    "This action has been logged."
+                # LangGraph 1.x _normalize_tool_response only accepts ToolMessage,
+                # Command, or list thereof — never a raw str. Return a ToolMessage.
+                from langchain_core.messages import ToolMessage
+                return ToolMessage(
+                    content=(
+                        f"[ALCATRAZ BLOCKED] '{tool_name}' is denied by your "
+                        "security policy. This action has been logged."
+                    ),
+                    tool_call_id=kwargs.get("tool_call_id", ""),
+                    status="error",
                 )
 
             return original_run(self, tool_input, *args, **kwargs)
