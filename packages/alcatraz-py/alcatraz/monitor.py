@@ -31,9 +31,10 @@ class AlcatrazMonitor(BaseCallbackHandler):
     4  RESULT — prompt injection / data leak in tool output
     """
 
-    def __init__(self, api_key: str = "", alcatraz_url: str = None):
+    def __init__(self, api_key: str = "", alcatraz_url: str = None, agent_id: str = None):
         self.api_key = api_key
         self.alcatraz_url = alcatraz_url
+        self.agent_id = agent_id
 
     # 1 INPUT MONITOR
     def on_chat_model_start(
