@@ -97,11 +97,11 @@ const SCENARIOS: ScenarioItem[] = [
 ];
 
 const PHASE_MS: Record<Phase, number> = {
-  idle:       600,
-  sending:    1500,
-  evaluating: 700,
-  resolving:  1300,
-  showing:    2600,
+  idle:       300,
+  sending:    800,
+  evaluating: 400,
+  resolving:  700,
+  showing:    1400,
 };
 
 const PACKET_COLOR: Record<ResultType, string> = {
@@ -218,7 +218,7 @@ function AssetNode({
 function PathTrail({ d, color, dur }: { d: string; color: string; dur: string }) {
   return (
     <g opacity="0">
-      <animate attributeName="opacity" from="0" to="1" dur="0.35s" fill="freeze" />
+      <animate attributeName="opacity" from="0" to="1" dur="0.2s" fill="freeze" />
       <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" pathLength="1" strokeDasharray="1" strokeDashoffset="1" opacity="0.6">
         <animate attributeName="stroke-dashoffset" from="1" to="0" dur={dur} fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.42 0 0.58 1" />
       </path>
@@ -313,21 +313,21 @@ export function HeroAsset() {
         {/* Active agent path — progressive fill */}
         {outboundVisible && (
           <g key={`trail-out-${idx}`}>
-            <PathTrail d={AGENT_PATH[scenario.agent]} color={color} dur="0.8s" />
+            <PathTrail d={AGENT_PATH[scenario.agent]} color={color} dur="0.45s" />
           </g>
         )}
 
         {/* Active service path — progressive fill */}
         {inboundVisible && scenario.service && (
           <g key={`trail-in-${idx}`}>
-            <PathTrail d={SERVICE_PATH[scenario.service]} color={color} dur="0.8s" />
+            <PathTrail d={SERVICE_PATH[scenario.service]} color={color} dur="0.45s" />
           </g>
         )}
 
         {/* Active human review route — progressive fill */}
         {humanRouteVisible && (
           <g key={`trail-human-${idx}`}>
-            <PathTrail d={HUMAN_PATH} color={color} dur="0.8s" />
+            <PathTrail d={HUMAN_PATH} color={color} dur="0.45s" />
           </g>
         )}
 
