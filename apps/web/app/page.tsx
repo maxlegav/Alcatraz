@@ -49,9 +49,11 @@ function StepSetup({ onNext }: { onNext: () => void }) {
   const setCheck = (i: number, patch: Partial<CheckStep>) =>
     setChecks(prev => prev.map((c, idx) => idx === i ? { ...c, ...patch } : c));
 
-  // Reset all DB data at the start of every onboarding session
+  // Reset DB + browser session state at the start of every onboarding
   useEffect(() => {
     fetch('/api/reset', { method: 'POST' }).catch(() => {});
+    sessionStorage.removeItem('alc_epoch');
+    sessionStorage.removeItem('alc_sessions');
   }, []);
 
   const verify = async () => {

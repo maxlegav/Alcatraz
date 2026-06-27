@@ -714,14 +714,17 @@ export default function DashboardClient() {
   const [error, setError]                   = useState<string | null>(null);
   const [hitlPending, setHitlPending]       = useState<HitlRequest[]>([]);
   const [runStatus, setRunStatus]           = useState<RunStatus>({ online: false, running: false });
-  const [sessions, setSessions]             = useState<Session[]>([]);
+  // Persist sessions + epoch across navigations (cleared only on onboarding reset)
+  const [sessions, setSessions] = useState<Session[]>(() => {
+    try { return JSON.parse(sessionStorage.getItem('alc_sessions') ?? '[]') as Session[]; } catch { return []; }
+  });
   const [activeSessionId, setActiveSessionId] = useState<string>('all');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry]   = useState<DisplayEntry | null>(null);
   const [reportToast, setReportToast]       = useState<{ href: string } | null>(null);
   const prevRunning  = useRef(false);
-  // Only show events that happened after the first Run click in this browser session
-  const sessionEpoch = useRef<string | null>(null);
+  // Epoch = timestamp of first Run click; only events after this are shown
+  const sessionEpoch = useRef<string | null>(sessionStorage.getItem('alc_epoch'));
 
   // Derived stats
   const totalCalls   = agentStats.reduce((s, a) => s + a.totalCalls,   0);
@@ -772,6 +775,11 @@ export default function DashboardClient() {
     const seen = new Set<string>();
     return all.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
   }, []);
+
+  // Keep sessionStorage in sync
+  useEffect(() => {
+    sessionStorage.setItem('alc_sessions', JSON.stringify(sessions));
+  }, [sessions]);
 
   useEffect(() => {
     if (selectedAgentId === null && agentStats.length > 0) setSelectedAgentId(agentStats[0].id);
@@ -885,7 +893,10 @@ export default function DashboardClient() {
       if (!res.ok) return data.hint ?? data.error ?? 'Failed to start';
       const startedAt = new Date().toISOString();
       // Set the epoch so polling starts collecting events from now
-      if (!sessionEpoch.current) sessionEpoch.current = startedAt;
+      if (!sessionEpoch.current) {
+        sessionEpoch.current = startedAt;
+        sessionStorage.setItem('alc_epoch', startedAt);
+      }
       const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
       setSessions(prev => [...prev, newSession]);
       setActiveSessionId(newSession.id);
