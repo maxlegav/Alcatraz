@@ -518,16 +518,12 @@ function GuardrailsPanel({ agentId }: { agentId: string | null }) {
       .then((g: { guardrails?: Guardrail[] }) => {
         const gr = g.guardrails?.[0] ?? null;
         setGuardrail(gr);
-        setDeny(gr?.deny_patterns  ?? ['bash_executor', 'env_reader']);
-        setAllow(gr?.allow_patterns ?? ['web_search', 'read_internal_doc']);
-        setReview(['database_query', 'send_report']);
+        setDeny(gr?.deny_patterns  ?? []);
+        setAllow(gr?.allow_patterns ?? []);
+        setReview([]);
         setRateLimit(gr?.max_calls_per_min ?? 10);
       })
-      .catch(() => {
-        setDeny(['bash_executor', 'env_reader']);
-        setAllow(['web_search', 'read_internal_doc']);
-        setReview(['database_query', 'send_report']);
-      })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [agentId]);
 
@@ -842,6 +838,11 @@ export default function DashboardClient() {
             <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span>
             <span className="text-xs font-medium text-emerald-600">Live</span>
           </div>
+          <div className="w-px h-5 bg-slate-200" />
+          <Link href="/" className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+            Onboarding
+          </Link>
           <div className="w-px h-5 bg-slate-200" />
           <RunButton isRunning={runStatus.running} onRun={handleRun} />
         </div>
