@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useEffect, type ReactNode } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase/client';
 import { formatTimeAgo, formatTime } from '@/lib/agent-status';
 import type { AgentStat, FeedEntry } from './types';
+import { loadDashboardData, upsertRealtimeAgentStats } from './dashboard-data';
+import AnalyzeButton from '../agents/[id]/AnalyzeButton';
 
 // ── Health ────────────────────────────────────────────────────────────────────
 type HealthTone = 'green' | 'amber' | 'red' | 'slate';
@@ -194,9 +197,18 @@ const HEALTH_TEXT: Record<HealthTone, string> = {
   slate: 'text-slate-400',
 };
 
+const SUGGESTION_LABEL: Record<string, string> = {
+  prompt_injection: 'Prompt fix',
+  tool_redesign: 'Tool redesign',
+  data_provision: 'Data source',
+  other: 'Manual review',
+};
+
 function AgentCard({ agent, now, delay }: { agent: AgentStat; now: number; delay: number }) {
   const h = deriveHealth(agent);
   const barW = `${Math.min(h.blockRate * 6, 100)}%`;
+  const topPattern = agent.latestInsight?.top_pattern ?? null;
+  const recurringCount = agent.latestInsight?.recurring_tool_names.length ?? 0;
 
   return (
     <motion.div
@@ -205,22 +217,42 @@ function AgentCard({ agent, now, delay }: { agent: AgentStat; now: number; delay
       transition={{ delay, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
       className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4"
     >
-      <div className="flex items-center gap-3 mb-3.5">
-        <div className={cn(
-          'w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0',
-          avatarColor(agent.id),
-        )}>
-          {agent.name[0].toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-800 truncate">{agent.name}</p>
-          <span className={cn(
-            'inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full mt-0.5',
-            HEALTH_BADGE[h.tone],
+      <div className="flex items-start gap-3 mb-3.5">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className={cn(
+            'w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold text-white shrink-0',
+            avatarColor(agent.id),
           )}>
-            {h.label}
-          </span>
+            {agent.name[0].toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <Link
+              href={`/agents/${agent.id}`}
+              className="block truncate text-sm font-semibold text-slate-800 hover:text-blue-700"
+            >
+              {agent.name}
+            </Link>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+              <span className={cn(
+                'inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
+                HEALTH_BADGE[h.tone],
+              )}>
+                {h.label}
+              </span>
+              {typeof agent.version === 'number' && (
+                <span className="inline-block rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                  v{agent.version}
+                </span>
+              )}
+              {recurringCount > 0 && (
+                <span className="inline-block rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                  {recurringCount} recurring
+                </span>
+              )}
+            </div>
+          </div>
         </div>
+        <AnalyzeButton agentId={agent.id} />
       </div>
 
       <div className="mb-3">
@@ -240,6 +272,53 @@ function AgentCard({ agent, now, delay }: { agent: AgentStat; now: number; delay
         </div>
       </div>
 
+      {agent.latestInsight ? (
+        <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              Latest Insight
+            </p>
+            <span className="text-[10px] text-slate-400">
+              {new Date(agent.latestInsight.created_at).toLocaleDateString()}
+            </span>
+          </div>
+
+          {topPattern ? (
+            <>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="rounded-full bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  {topPattern.tool_name}
+                </span>
+                <span className="text-[10px] font-medium text-slate-500">
+                  {topPattern.blocked_count} blocked
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  {SUGGESTION_LABEL[topPattern.suggestion_type] ?? 'Review'}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-500 line-clamp-3">
+                {topPattern.suggestion}
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              {agent.latestInsight.summary ?? 'No blocked patterns were found in the latest analysis window.'}
+            </p>
+          )}
+
+          <Link
+            href={`/agents/${agent.id}`}
+            className="mt-2 inline-flex text-xs font-medium text-blue-600 hover:text-blue-700"
+          >
+            View analysis
+          </Link>
+        </div>
+      ) : (
+        <div className="mb-3 rounded-2xl border border-dashed border-slate-200 p-3 text-xs text-slate-400">
+          No analysis yet. Run the first scan from this card.
+        </div>
+      )}
+
       <div className="flex justify-between text-xs text-slate-400">
         <span>{agent.totalCalls.toLocaleString()} calls · {agent.blockedCalls} blocked</span>
         <span>{formatTimeAgo(agent.lastActive, now)}</span>
@@ -249,16 +328,13 @@ function AgentCard({ agent, now, delay }: { agent: AgentStat; now: number; delay
 }
 
 // ── Dashboard client ──────────────────────────────────────────────────────────
-interface Props {
-  agentStats: AgentStat[];
-  agentNameMap: Record<string, string>;
-  initialFeed: FeedEntry[];
-}
-
-export default function DashboardClient({ agentStats: initialStats, agentNameMap, initialFeed }: Props) {
+export default function DashboardClient() {
   const [now, setNow] = useState(() => Date.now());
-  const [feed, setFeed] = useState<FeedEntry[]>(initialFeed);
-  const [agentStats, setAgentStats] = useState<AgentStat[]>(initialStats);
+  const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const [agentStats, setAgentStats] = useState<AgentStat[]>([]);
+  const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const totalCalls   = agentStats.reduce((s, a) => s + a.totalCalls,   0);
   const totalBlocked = agentStats.reduce((s, a) => s + a.blockedCalls, 0);
@@ -273,6 +349,41 @@ export default function DashboardClient({ agentStats: initialStats, agentNameMap
     return () => clearInterval(t);
   }, []);
 
+  // Bootstrap dashboard state from backend API routes
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      try {
+        const data = await loadDashboardData();
+        if (cancelled) {
+          return;
+        }
+
+        setAgentStats(data.agentStats);
+        setAgentNameMap(data.agentNameMap);
+        setFeed(data.feed);
+        setError(null);
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+
+        setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Supabase Realtime — subscribe to new requests
   useEffect(() => {
     const channel = supabase
@@ -285,17 +396,17 @@ export default function DashboardClient({ agentStats: initialStats, agentNameMap
 
           // Prepend to feed (keep max 50)
           setFeed(prev => [entry, ...prev.slice(0, 49)]);
+          setAgentStats(prev => upsertRealtimeAgentStats(prev, entry));
+          setAgentNameMap(prev => {
+            if (prev[entry.agent_id]) {
+              return prev;
+            }
 
-          // Update per-agent stats
-          setAgentStats(prev => prev.map(a => {
-            if (a.id !== entry.agent_id) return a;
             return {
-              ...a,
-              totalCalls:   a.totalCalls + 1,
-              blockedCalls: a.blockedCalls + (entry.status === 'BLOCKED' ? 1 : 0),
-              lastActive:   entry.created_at,
+              ...prev,
+              [entry.agent_id]: entry.agent_id,
             };
-          }));
+          });
         },
       )
       .subscribe();
@@ -425,7 +536,25 @@ export default function DashboardClient({ agentStats: initialStats, agentNameMap
 
               {/* scrollable entries */}
               <div className="flex-1 overflow-y-auto min-h-0">
-                {feed.length === 0 ? (
+                {isLoading ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-16">
+                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
+                      <Icon.Activity />
+                    </div>
+                    <p className="text-sm font-medium text-slate-600">Loading requests</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Pulling the latest intercepted tool calls
+                    </p>
+                  </div>
+                ) : error ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-16 px-6">
+                    <div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mb-4">
+                      <Icon.Shield />
+                    </div>
+                    <p className="text-sm font-medium text-slate-700">Dashboard load failed</p>
+                    <p className="text-xs text-slate-400 mt-1">{error}</p>
+                  </div>
+                ) : feed.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-center py-16">
                     <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
                       <Icon.Activity />
@@ -473,7 +602,11 @@ export default function DashboardClient({ agentStats: initialStats, agentNameMap
                 </h2>
               </motion.div>
               <div className="flex-1 overflow-y-auto flex flex-col gap-3 pr-0.5">
-                {agentStats.length === 0 ? (
+                {isLoading ? (
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
+                    <p className="text-sm text-slate-500">Loading agents</p>
+                  </div>
+                ) : agentStats.length === 0 ? (
                   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
                     <p className="text-sm text-slate-500">No agents registered yet</p>
                   </div>

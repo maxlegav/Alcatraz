@@ -1,11 +1,15 @@
+import type { InsightSummary } from '@/lib/insight-summary';
+
 // Shared types for the dashboard (used by both the Server Component and DashboardClient)
 
 export type AgentStat = {
   id: string;
   name: string;
+  version?: number;
   totalCalls: number;
   blockedCalls: number;
   lastActive: string | null;
+  latestInsight?: InsightSummary | null;
 };
 
 export type FeedEntry = {
