@@ -1,9 +1,11 @@
 import functools
+import threading
 from .rules import check_rules
 from .logger import send_log
 
 _config: dict = {}
 _session_always_allow: set = set()
+_hitl_lock = threading.Lock()
 
 
 def init(api_key: str, rules: dict = None, alcatraz_url: str = None) -> None:
@@ -41,9 +43,17 @@ def _hitl_approve(tool_name: str, tool_input_preview: str) -> bool:
     print(f"  [ALCATRAZ REVIEW] Human approval required")
     print(f"  Tool:  {tool_name}")
     print(f"  Input: {tool_input_preview}")
-    print(f"{'='*60}")
+    print(f"{'='*60}", flush=True)
     try:
-        response = input("  Allow? [y / N / always]: ").strip().lower()
+        # Read from /dev/tty directly so it works even from background threads
+        # (LangGraph executes tools in a ThreadPoolExecutor).
+        with _hitl_lock:
+            print("  Allow? [y / N / always]: ", end="", flush=True)
+            try:
+                with open("/dev/tty", "r") as tty:
+                    response = tty.readline().strip().lower()
+            except OSError:
+                response = input().strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
     if response == "always":
