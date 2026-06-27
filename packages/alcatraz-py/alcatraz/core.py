@@ -3,6 +3,7 @@ from .rules import check_rules
 from .logger import send_log
 
 _config: dict = {}
+_session_always_allow: set = set()
 
 
 def init(api_key: str, rules: dict = None, alcatraz_url: str = None) -> None:
@@ -14,13 +15,41 @@ def init(api_key: str, rules: dict = None, alcatraz_url: str = None) -> None:
         rules:        Security policy, e.g. {"DENY": ["bash_executor"], "ALLOW": [...]}
         alcatraz_url: Override the API base URL (default: ALCATRAZ_API_URL env var).
     """
+    from .monitor import AlcatrazMonitor
+
     _config["api_key"] = api_key
     _config["rules"] = rules or {}
     if alcatraz_url:
         _config["alcatraz_url"] = alcatraz_url
+    _config["callbacks"] = [AlcatrazMonitor(api_key=api_key, alcatraz_url=alcatraz_url)]
 
     _patch_langchain()
     _patch_openai()
+
+
+def get_callbacks():
+    """Return the list of Alcatraz callback handlers (AlcatrazMonitor instances)."""
+    return _config.get("callbacks", [])
+
+
+def _hitl_approve(tool_name: str, tool_input_preview: str) -> bool:
+    """Human-in-the-loop approval prompt for REVIEW-listed tools."""
+    if tool_name in _session_always_allow:
+        print(f"\n  [ALCATRAZ REVIEW] '{tool_name}' auto-approved (session)")
+        return True
+    print(f"\n{'='*60}")
+    print(f"  [ALCATRAZ REVIEW] Human approval required")
+    print(f"  Tool:  {tool_name}")
+    print(f"  Input: {tool_input_preview}")
+    print(f"{'='*60}")
+    try:
+        response = input("  Allow? [y / N / always]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    if response == "always":
+        _session_always_allow.add(tool_name)
+        return True
+    return response == "y"
 
 
 def _patch_langchain() -> None:
@@ -32,21 +61,18 @@ def _patch_langchain() -> None:
         @functools.wraps(original_run)
         def patched_run(self, tool_input, *args, **kwargs):
             tool_name = self.name
-            allowed = check_rules(tool_name, _config.get("rules", {}))
+            decision = check_rules(tool_name, _config.get("rules", {}))
             severity = _infer_severity(tool_name)
 
-            send_log(
-                api_key=_config["api_key"],
-                tool_name=tool_name,
-                status="ALLOWED" if allowed else "BLOCKED",
-                severity=severity,
-                payload={"input": str(tool_input)[:300]},
-                alcatraz_url=_config.get("alcatraz_url"),
-            )
-
-            if not allowed:
-                # LangGraph 1.x _normalize_tool_response only accepts ToolMessage,
-                # Command, or list thereof — never a raw str. Return a ToolMessage.
+            if decision == "DENY":
+                send_log(
+                    api_key=_config["api_key"],
+                    tool_name=tool_name,
+                    status="BLOCKED",
+                    severity=severity,
+                    payload={"input": str(tool_input)[:300]},
+                    alcatraz_url=_config.get("alcatraz_url"),
+                )
                 from langchain_core.messages import ToolMessage
                 return ToolMessage(
                     content=(
@@ -57,10 +83,49 @@ def _patch_langchain() -> None:
                     status="error",
                 )
 
-            return original_run(self, tool_input, *args, **kwargs)
+            elif decision == "REVIEW":
+                send_log(
+                    api_key=_config["api_key"],
+                    tool_name=tool_name,
+                    status="REVIEW",
+                    severity=severity,
+                    payload={"input": str(tool_input)[:300]},
+                    alcatraz_url=_config.get("alcatraz_url"),
+                )
+                approved = _hitl_approve(tool_name, str(tool_input)[:200])
+                if not approved:
+                    from langchain_core.messages import ToolMessage
+                    return ToolMessage(
+                        content=(
+                            f"[ALCATRAZ REVIEW DENIED] '{tool_name}' was not approved by operator."
+                        ),
+                        tool_call_id=kwargs.get("tool_call_id", ""),
+                        status="error",
+                    )
+                # Log as allowed after human approval
+                send_log(
+                    api_key=_config["api_key"],
+                    tool_name=tool_name,
+                    status="ALLOWED",
+                    severity=severity,
+                    payload={"input": str(tool_input)[:300]},
+                    alcatraz_url=_config.get("alcatraz_url"),
+                )
+                return original_run(self, tool_input, *args, **kwargs)
+
+            else:  # ALLOW
+                send_log(
+                    api_key=_config["api_key"],
+                    tool_name=tool_name,
+                    status="ALLOWED",
+                    severity=severity,
+                    payload={"input": str(tool_input)[:300]},
+                    alcatraz_url=_config.get("alcatraz_url"),
+                )
+                return original_run(self, tool_input, *args, **kwargs)
 
         BaseTool.run = patched_run
-        print("✅ Alcatraz: LangChain BaseTool intercepted")
+        print("Alcatraz: LangChain BaseTool intercepted")
 
     except ImportError:
         pass
@@ -81,22 +146,22 @@ def _patch_openai() -> None:
                     if tc:
                         for tool_call in tc:
                             name = tool_call.function.name
-                            allowed = check_rules(name, _config.get("rules", {}))
+                            decision = check_rules(name, _config.get("rules", {}))
                             send_log(
                                 api_key=_config["api_key"],
                                 tool_name=name,
-                                status="ALLOWED" if allowed else "BLOCKED",
+                                status="ALLOWED" if decision == "ALLOW" else "BLOCKED",
                                 severity=_infer_severity(name),
                                 alcatraz_url=_config.get("alcatraz_url"),
                             )
-                            if not allowed:
+                            if decision == "DENY":
                                 raise PermissionError(
-                                    f"🔴 Alcatraz BLOCKED: '{name}' is denied."
+                                    f"Alcatraz BLOCKED: '{name}' is denied."
                                 )
             return response
 
         openai.chat.completions.create = patched_create
-        print("✅ Alcatraz: OpenAI intercepted")
+        print("Alcatraz: OpenAI intercepted")
 
     except ImportError:
         pass

@@ -1,0 +1,10 @@
+CONTRACT — CONFIDENTIAL
+Client: Acme Corp
+Contract Value: $450,000/year
+Services: Enterprise SaaS License (500 seats), Priority Support
+Payment Terms: Net 30, Quarterly billing
+Primary Contact: Sarah Johnson (sjohnson@acmecorp.com)
+Last Payment: $112,500 on April 1, 2026 — RECEIVED
+Next Payment: $112,500 due July 1, 2026 — PENDING
+NPS Score: 78 — High renewal probability
+Notes: EU expansion planned Q1 2027, GDPR compliance module requested
