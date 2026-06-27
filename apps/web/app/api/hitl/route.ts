@@ -39,14 +39,25 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET /api/hitl
- * Returns all pending HITL requests (used by dashboard on load).
+ * - Without ?since=  → returns only pending requests (floating approval panel)
+ * - With    ?since=  → returns ALL requests (pending + decided) after that timestamp
+ *                      (used by the live feed to show historical HITL decisions)
  */
-export async function GET() {
-  const { data, error } = await supabaseAdmin
+export async function GET(req: NextRequest) {
+  const since = req.nextUrl.searchParams.get("since");
+
+  let query = supabaseAdmin
     .from("hitl_requests")
     .select("*")
-    .eq("status", "pending")
     .order("created_at", { ascending: true });
+
+  if (since) {
+    query = query.gt("created_at", since); // all statuses, scoped to session
+  } else {
+    query = query.eq("status", "pending"); // default: pending only
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

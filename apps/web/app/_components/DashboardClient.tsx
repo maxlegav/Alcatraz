@@ -23,11 +23,14 @@ type RiskInfo = { level: RiskLevel; reason: string; cvss: number };
 
 // Unified display entry — requests + HITL both rendered in the feed
 type DisplayStatus = 'ALLOWED' | 'BLOCKED' | 'REVIEW';
+type HitlDecision = 'pending' | 'approved' | 'denied';
 type DisplayEntry = {
   id: string; agent_id: string; tool_name: string;
   displayStatus: DisplayStatus;
   severity: string | null; payload: Record<string, unknown> | null;
-  created_at: string; isHitl?: boolean;
+  created_at: string;
+  isHitl?: boolean;
+  hitlDecision?: HitlDecision;
 };
 
 // ── Risk assessment ────────────────────────────────────────────────────────────
@@ -184,7 +187,9 @@ function LogRow({ entry, agentName, onClick }: { entry: DisplayEntry; agentName:
         <div className="flex items-center gap-2">
           <span className={cn('font-mono font-semibold truncate', isSecEv ? 'text-red-700' : review ? 'text-amber-700' : blocked ? 'text-slate-800' : 'text-slate-700')}>{entry.tool_name}</span>
           {isSecEv && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-red-600 text-white">Injection</span>}
-          {review   && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500 text-white">HITL</span>}
+          {review   && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500 text-white">⏳ HITL</span>}
+          {entry.isHitl && entry.hitlDecision === 'approved' && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">✓ HITL approved</span>}
+          {entry.isHitl && entry.hitlDecision === 'denied'   && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-red-700 text-white">✗ HITL denied</span>}
         </div>
         {hint && <span className="text-[10px] text-slate-400 truncate block mt-0.5 font-mono">{hint}</span>}
       </div>
@@ -760,14 +765,12 @@ export default function DashboardClient() {
       displayStatus: r.status as DisplayStatus,
       severity: r.severity, payload: r.payload, created_at: r.created_at,
     }));
-    const hitlEntries: DisplayEntry[] = hitlAll
-      .filter(h => h.status === 'pending')
-      .map(h => ({
-        id: `hitl-${h.id}`, agent_id: h.agent_id, tool_name: h.tool_name,
-        displayStatus: 'REVIEW' as DisplayStatus,
-        severity: null, payload: { input: h.tool_input }, created_at: h.created_at,
-        isHitl: true,
-      }));
+    const hitlEntries: DisplayEntry[] = hitlAll.map(h => ({
+      id: `hitl-${h.id}`, agent_id: h.agent_id, tool_name: h.tool_name,
+      displayStatus: (h.status === 'pending' ? 'REVIEW' : h.status === 'approved' ? 'ALLOWED' : 'BLOCKED') as DisplayStatus,
+      severity: null, payload: { input: h.tool_input }, created_at: h.created_at,
+      isHitl: true, hitlDecision: h.status as HitlDecision,
+    }));
     // Merge and sort newest first, deduplicated by id
     const all = [...reqEntries, ...hitlEntries].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -814,40 +817,47 @@ export default function DashboardClient() {
 
   // Primary live feed: HTTP polling every 2 s
   // (Realtime is unreliable due to RLS on anon key — polling is the source of truth)
-  useEffect(() => {
-    const poll = setInterval(async () => {
-      if (!sessionEpoch.current) return; // nothing started yet
-      try {
-        const [reqRes, hitlRes] = await Promise.all([
-          fetch(`/api/requests?limit=500&since=${encodeURIComponent(sessionEpoch.current)}`).then(r => r.json()) as Promise<{ requests?: Array<{ id: string; agent_id: string; tool_name: string; status: string; severity: string|null; payload: Record<string,unknown>|null; created_at: string }> }>,
-          fetch('/api/hitl').then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
-        ]);
-        const requests = reqRes.requests ?? [];
-        const hitlAll  = hitlRes.hitl_requests ?? [];
+  const pollFeed = useCallback(async () => {
+    if (!sessionEpoch.current) return;
+    try {
+      const epoch = sessionEpoch.current;
+      const [reqRes, hitlRes, hitlAllRes] = await Promise.all([
+        fetch(`/api/requests?limit=500&since=${encodeURIComponent(epoch)}`).then(r => r.json()) as Promise<{ requests?: Array<{ id: string; agent_id: string; tool_name: string; status: string; severity: string|null; payload: Record<string,unknown>|null; created_at: string }> }>,
+        fetch('/api/hitl').then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
+        fetch(`/api/hitl?since=${encodeURIComponent(epoch)}`).then(r => r.json()) as Promise<{ hitl_requests?: HitlRequest[] }>,
+      ]);
+      const requests = reqRes.requests ?? [];
+      const hitlPendingList = hitlRes.hitl_requests ?? [];
+      const hitlAll  = hitlAllRes.hitl_requests ?? [];
 
-        setHitlPending(hitlAll.filter(h => h.status === 'pending'));
+      setHitlPending(hitlPendingList);
 
-        // Rebuild full feed from current session
-        const newFeed = buildDisplayFeed(requests, hitlAll);
-        setFeed(newFeed);
+      // Rebuild full feed from current session (requests + all HITL including decided)
+      const newFeed = buildDisplayFeed(requests, hitlAll);
+      setFeed(newFeed);
 
-        // Keep agentStats in sync
-        setAgentStats(prev => {
-          let updated = prev;
-          for (const r of requests) {
-            updated = upsertRealtimeAgentStats(updated, { ...r, status: r.status as 'ALLOWED'|'BLOCKED' });
-          }
-          return updated;
-        });
-        setAgentNameMap(prev => {
-          const next = { ...prev };
-          for (const r of requests) { if (!next[r.agent_id]) next[r.agent_id] = r.agent_id; }
-          return next;
-        });
-      } catch { /* ignore network errors */ }
-    }, 2000);
-    return () => clearInterval(poll);
+      // Keep agentStats in sync
+      setAgentStats(prev => {
+        let updated = prev;
+        for (const r of requests) {
+          updated = upsertRealtimeAgentStats(updated, { ...r, status: r.status as 'ALLOWED'|'BLOCKED' });
+        }
+        return updated;
+      });
+      setAgentNameMap(prev => {
+        const next = { ...prev };
+        for (const r of requests) { if (!next[r.agent_id]) next[r.agent_id] = r.agent_id; }
+        return next;
+      });
+    } catch { /* ignore network errors */ }
   }, [buildDisplayFeed]);
+
+  useEffect(() => {
+    // Immediate fetch on mount if we already have an epoch (returning from another page)
+    void pollFeed();
+    const interval = setInterval(pollFeed, 2000);
+    return () => clearInterval(interval);
+  }, [pollFeed]);
 
   // Secondary: Realtime as bonus (best-effort, may be blocked by RLS)
   useEffect(() => {
