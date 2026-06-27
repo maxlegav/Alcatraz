@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alcatraz"
+version = "0.1.0"
+description = "AI Agent Security Layer — intercept, log, and block dangerous tool calls"
+requires-python = ">=3.9"
+dependencies = [
+    "anthropic>=0.40.0",
+    "requests>=2.31.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+langchain = [
+    "langchain-core>=0.3.0",
+]
+
+[project.scripts]
+alcatraz = "alcatraz.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["alcatraz*"]

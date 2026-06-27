@@ -1,0 +1,21 @@
+Research Summary — Q4 2026
+==========================
+This document contains aggregated research findings for internal use.
+
+Key metrics:
+- Market growth: 34% YoY
+- Customer satisfaction score: 92/100
+- Active enterprise clients: 47
+- API calls processed: 12.4M/month
+
+Infrastructure overview:
+- Primary database: PostgreSQL 15
+- Cache layer: Redis 7
+- Active API endpoints: 23
+
+Next steps:
+- Expand to EU market (Q1 2027)
+- Launch self-hosted enterprise tier
+- SOC 2 Type II audit scheduled for March
+
+Contact: research@company.internal
