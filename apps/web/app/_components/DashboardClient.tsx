@@ -533,25 +533,20 @@ export default function DashboardClient() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // Realtime — HITL requests
+  // Poll /api/hitl every 3s — Supabase Realtime with anon key doesn't reliably
+  // deliver hitl_requests events due to RLS, so polling is more robust.
   useEffect(() => {
-    const channel = supabase
-      .channel('dashboard-hitl')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'hitl_requests' }, (payload) => {
-        const req = payload.new as HitlRequest;
-        if (req.status === 'pending') {
-          setHitlPending(prev => [...prev, req]);
-        }
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'hitl_requests' }, (payload) => {
-        const req = payload.new as HitlRequest;
-        // Remove from pending once decided
-        if (req.status !== 'pending') {
-          setHitlPending(prev => prev.filter(r => r.id !== req.id));
-        }
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch('/api/hitl');
+        const data = await res.json() as { hitl_requests?: HitlRequest[] };
+        const pending = data.hitl_requests ?? [];
+        setHitlPending(pending);
+      } catch {
+        // ignore transient errors
+      }
+    }, 3000);
+    return () => clearInterval(poll);
   }, []);
 
   const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
