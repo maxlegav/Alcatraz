@@ -1,22 +1,5 @@
 import React from 'react';
 
-function BrandMark() {
-  return (
-    <svg viewBox="0 0 40 40" className="h-8 w-8" aria-hidden="true">
-      <defs>
-        <linearGradient id="footer-brand-grad" x1="0%" x2="100%" y1="0%" y2="100%">
-          <stop offset="0%" stopColor="#8b5cf6" />
-          <stop offset="100%" stopColor="#4f8ff7" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M13 6h8l6 10-6 10h-8L7 16l6-10Zm1.7 5L11.9 16l2.8 5h4.6l2.8-5-2.8-5h-4.6Z"
-        fill="url(#footer-brand-grad)"
-      />
-    </svg>
-  );
-}
-
 const LINKS = ['Docs', 'SDK Reference'];
 
 export function Footer() {
@@ -26,7 +9,7 @@ export function Footer() {
         <div className="flex flex-col items-start gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2.5">
-              <BrandMark />
+              <img src="/logo.png" alt="Alcatraz" className="h-8 w-8 object-contain" />
               <span className="text-[1.3rem] font-semibold tracking-[-0.05em] text-slate-800">
                 Alcatraz
               </span>

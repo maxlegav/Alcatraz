@@ -17,6 +17,10 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Alcatraz — Agent Security Layer",
   description: "Real-time monitoring of your AI agent ecosystem",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({

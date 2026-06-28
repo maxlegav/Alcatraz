@@ -8,7 +8,7 @@ function DashboardSkeleton() {
       <header className="shrink-0 bg-white border-b border-slate-200 px-8 h-16 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-[linear-gradient(135deg,#6965f4_0%,#5b7dff_100%)]" />
+            <div className="w-8 h-8 rounded-xl bg-slate-100 animate-pulse" />
             <div className="h-5 w-24 rounded-md bg-slate-200 animate-pulse" />
           </div>
           <div className="w-px h-5 bg-slate-200" />

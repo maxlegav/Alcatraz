@@ -62,21 +62,6 @@ function HumanIcon() {
   );
 }
 
-function ShieldIcon({ active = false }: { active?: boolean }) {
-  return (
-    <svg viewBox="0 0 56 56" className="h-11 w-11" aria-hidden="true">
-      <defs>
-        <linearGradient id="shield-grad" x1="0%" x2="100%" y1="0%" y2="100%">
-          <stop offset="0%" stopColor={active ? '#7c3aed' : '#8b5cf6'} />
-          <stop offset="100%" stopColor={active ? '#2563eb' : '#4f8ff7'} />
-        </linearGradient>
-      </defs>
-      <path d="M28 6 42 11v13c0 9.5-6 18.2-14 21-8-2.8-14-11.5-14-21V11L28 6Z" fill="url(#shield-grad)" />
-      <path d="M22 29.5 27 34l8-11" fill="none" stroke="#fff" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
-    </svg>
-  );
-}
-
 // ─── Types & Constants ────────────────────────────────────────────────────────
 
 type ResultType = 'approved' | 'blocked' | 'human';
@@ -395,7 +380,7 @@ export function HeroAsset() {
         ].join(' ')}
         style={{ left: SHIELD.left, top: SHIELD.top, width: SHIELD.size, height: SHIELD.size }}
       >
-        <ShieldIcon active={shieldActive} />
+        <img src="/logo.png" alt="Alcatraz" className="w-10 h-10 object-contain" />
       </div>
 
       {/* ── Result badge ── */}

@@ -5,6 +5,7 @@ export function Navbar() {
   return (
     <header className="flex items-center justify-between">
       <Link href="/" className="flex items-center gap-3">
+        <img src="/logo.png" alt="" className="h-8 w-8 object-contain" aria-hidden="true" />
         <span className="text-[1.65rem] font-semibold tracking-[-0.05em] text-slate-800">
           Alcatraz
         </span>
