@@ -198,7 +198,7 @@ function LogRow({ entry, agentName, onClick }: { entry: DisplayEntry; agentName:
         'grid-cols-[8px_1fr_80px_90px_56px]',
         isSecEv ? 'bg-red-50/80 hover:bg-red-50 border-l-[3px] border-l-red-500' :
         review  ? 'bg-amber-50/60 hover:bg-amber-50/90' :
-        blocked ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50',
+        blocked ? 'bg-red-50/40 hover:bg-red-50/70' : 'bg-emerald-50/40 hover:bg-emerald-50/70',
       )}
     >
       <span className={cn('h-2 w-2 rounded-full shrink-0', isSecEv ? 'bg-red-600 animate-pulse' : review ? 'bg-amber-400 animate-pulse' : blocked ? 'bg-red-400' : 'bg-emerald-400')} />
@@ -354,6 +354,8 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
   onDecide: (id: string, status: 'approved' | 'denied') => Promise<void>;
 }) {
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
+  const [minimized, setMinimized] = useState(false);
+
   const decide = async (id: string, status: 'approved' | 'denied') => {
     setDeciding(p => ({ ...p, [id]: true }));
     await onDecide(id, status);
@@ -367,6 +369,27 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
     return rb.cvss - ra.cvss;
   });
 
+  if (minimized) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+        className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-amber-500 text-white rounded-2xl shadow-2xl px-4 py-3 cursor-pointer hover:bg-amber-600 transition-colors"
+        onClick={() => setMinimized(false)}
+      >
+        <span className="relative flex h-2.5 w-2.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
+        </span>
+        <span className="text-sm font-bold">
+          {requests.length} approval{requests.length > 1 ? 's' : ''} pending
+        </span>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="18 15 12 9 6 15" />
+        </svg>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 40, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -374,16 +397,25 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
       className="fixed bottom-6 right-6 z-50 w-[440px] bg-white rounded-2xl border-2 border-amber-400 shadow-2xl overflow-hidden"
     >
       <div className="bg-amber-50 border-b border-amber-200 px-5 py-3 flex items-center gap-3">
-        <span className="relative flex h-3 w-3">
+        <span className="relative flex h-3 w-3 shrink-0">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
           <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500" />
         </span>
-        <div>
+        <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-amber-900">Human Approval Required</p>
           <p className="text-xs text-amber-700">
             {requests.length} action{requests.length > 1 ? 's' : ''} pending · highest risk shown first
           </p>
         </div>
+        <button
+          onClick={() => setMinimized(true)}
+          title="Minimize panel"
+          className="shrink-0 p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 hover:text-amber-800 transition-colors"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
       </div>
       <div className="max-h-[480px] overflow-y-auto divide-y divide-slate-100">
         {sorted.map(req => {
