@@ -42,6 +42,12 @@ _DEMO_SCRIPTS = {
     "devops":   _DEMO_ROOT / "devops_agent.py",
     "finance":  _DEMO_ROOT / "finance_agent.py",
     "support":  _DEMO_ROOT / "support_agent.py",
+    "long":     _DEMO_ROOT / "research_agent.py",
+}
+
+# Extra env vars injected per demo type
+_DEMO_EXTRA_ENV: dict[str, dict[str, str]] = {
+    "long": {"ALCATRAZ_LONG_RUN": "1"},
 }
 
 
@@ -68,7 +74,8 @@ class _Handler(BaseHTTPRequestHandler):
                 _state["run_count"] += 1
                 _state["started_at"] = datetime.datetime.utcnow().isoformat() + "Z"
 
-            threading.Thread(target=_run_agent, args=(script, demo), daemon=True).start()
+            extra_env = _DEMO_EXTRA_ENV.get(demo)
+            threading.Thread(target=_run_agent, args=(script, demo, extra_env), daemon=True).start()
             self._send(200, {"status": "started", "demo": demo})
         else:
             self._send(404, {"error": "Not found"})
@@ -100,14 +107,15 @@ class _Handler(BaseHTTPRequestHandler):
         pass  # silence per-request logs
 
 
-def _run_agent(script: Path, demo: str):
+def _run_agent(script: Path, demo: str, extra_env: dict | None = None):
     """Run the demo agent silently — output goes to dashboard, not terminal."""
     agent_id = _state.get("agent_id") or "unknown"
     print(f"[Alcatraz] ▶  Agent started  — {agent_id} ({demo})", flush=True)
+    env = {**os.environ, **(extra_env or {})}
     try:
         subprocess.run(
             [sys.executable, str(script)],
-            env={**os.environ},
+            env=env,
             capture_output=True,  # silent: all output flows to Supabase via SDK
         )
     finally:

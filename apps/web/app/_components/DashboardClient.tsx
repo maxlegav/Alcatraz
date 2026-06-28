@@ -1035,7 +1035,7 @@ export default function DashboardClient() {
     return () => clearInterval(poll);
   }, []);
 
-  const startAgent = useCallback(async (demo: DemoType): Promise<void> => {
+  const startAgent = useCallback(async (demo: DemoType | 'long'): Promise<void> => {
     try {
       const res = await fetch(`/api/run?demo=${demo}`, { method: 'POST' });
       if (!res.ok) return; // 409 = already at max concurrent, silently skip
@@ -1059,8 +1059,8 @@ export default function DashboardClient() {
     void pollFeed();
   }, [pollFeed]);
 
-  // Auto-scheduler: fires 1 agent on mount, then one at a time every 45–75 s.
-  // Fallback watchdog triggers if nothing has run for >120 s.
+  // Auto-scheduler: fires 1 long agent on mount, then one random agent every 20–45 s.
+  // Fallback watchdog triggers if nothing has run for >60 s.
   const lastRunAt = useRef<number>(0);
   const schedulerActive = useRef(false);
 
@@ -1069,11 +1069,11 @@ export default function DashboardClient() {
     schedulerActive.current = true;
 
     const pickDemo = (): DemoType => DEMO_TYPES[Math.floor(Math.random() * DEMO_TYPES.length)];
-    const randomDelay = () => 45_000 + Math.random() * 30_000; // 45–75 s
+    const randomDelay = () => 20_000 + Math.random() * 25_000; // 20–45 s
 
-    // Fire 1 agent on mount
+    // Fire 1 long agent on mount
     const fireInitial = async () => {
-      await startAgent(pickDemo());
+      await startAgent('long');
       lastRunAt.current = Date.now();
     };
 
@@ -1087,13 +1087,13 @@ export default function DashboardClient() {
       }, delay);
     };
 
-    // Watchdog: if nothing has run in 120 s, force one
+    // Watchdog: if nothing has run in 60 s, force one
     const watchdog = setInterval(() => {
-      if (Date.now() - lastRunAt.current > 120_000) {
+      if (Date.now() - lastRunAt.current > 60_000) {
         void startAgent(pickDemo());
         lastRunAt.current = Date.now();
       }
-    }, 15_000);
+    }, 10_000);
 
     let nextTimer: ReturnType<typeof setTimeout>;
 
