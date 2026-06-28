@@ -86,7 +86,7 @@ const Icon = {
 // ── KPI card ──────────────────────────────────────────────────────────────────
 type Accent = 'blue' | 'red' | 'amber' | 'green';
 const ACCENT: Record<Accent, { bar: string; value: string; icon: string }> = {
-  blue:  { bar: 'bg-blue-600',    value: 'text-blue-700',    icon: 'bg-blue-50 text-blue-600'       },
+  blue:  { bar: 'bg-violet-600',  value: 'text-violet-700',  icon: 'bg-violet-50 text-violet-600'   },
   red:   { bar: 'bg-red-500',     value: 'text-red-700',     icon: 'bg-red-50 text-red-500'         },
   amber: { bar: 'bg-amber-500',   value: 'text-amber-700',   icon: 'bg-amber-50 text-amber-500'     },
   green: { bar: 'bg-emerald-500', value: 'text-emerald-700', icon: 'bg-emerald-50 text-emerald-500' },
@@ -123,12 +123,12 @@ function SessionTabs({ sessions, activeId, onSelect }: { sessions: Session[]; ac
   return (
     <div className="flex items-center gap-1.5 px-5 py-3 border-b border-slate-100 overflow-x-auto shrink-0">
       <button onClick={() => onSelect('all')}
-        className={cn('px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0', activeId === 'all' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700')}>
+        className={cn('px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0', activeId === 'all' ? 'bg-[#635bff] text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700')}>
         All runs
       </button>
       {sessions.map(s => (
         <button key={s.id} onClick={() => onSelect(s.id)}
-          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0', activeId === s.id ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700')}>
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors shrink-0', activeId === s.id ? 'bg-[#635bff] text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700')}>
           {formatRunLabel(s)}
           {!s.endedAt && (
             <span className="relative flex h-1.5 w-1.5">
@@ -140,7 +140,7 @@ function SessionTabs({ sessions, activeId, onSelect }: { sessions: Session[]; ac
             <Link
               href={`/report?from=${encodeURIComponent(s.startedAt)}&to=${encodeURIComponent(s.endedAt)}`}
               onClick={e => e.stopPropagation()}
-              className={cn('ml-1 flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold uppercase transition-colors', activeId === s.id ? 'bg-blue-500 text-white hover:bg-blue-400' : 'bg-slate-200 text-slate-500 hover:bg-slate-300')}
+              className={cn('ml-1 flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold uppercase transition-colors', activeId === s.id ? 'bg-violet-500 text-white hover:bg-violet-400' : 'bg-slate-200 text-slate-500 hover:bg-slate-300')}
             >
               <Icon.Report /> Report
             </Link>
@@ -318,7 +318,7 @@ function ReportReadyToast({ href, onClose }: { href: string; onClose: () => void
         <p className="text-xs text-slate-400 mt-0.5">Security report generated for this session</p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <Link href={href} className="text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors whitespace-nowrap">
+        <Link href={href} className="text-xs font-semibold text-violet-400 hover:text-violet-300 transition-colors whitespace-nowrap">
           View Report →
         </Link>
         <button onClick={onClose} className="text-slate-500 hover:text-slate-300">
@@ -413,7 +413,7 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
 }
 
 // ── Run Button ────────────────────────────────────────────────────────────────
-function RunButton({ isRunning, onRun, label = 'Run Agent', idleClass = 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm' }: {
+function RunButton({ isRunning, onRun, label = 'Run Agent', idleClass = 'bg-[linear-gradient(135deg,#6965f4_0%,#5b7dff_100%)] text-white shadow-[0_4px_14px_rgba(99,91,255,0.26)] hover:shadow-[0_8px_24px_rgba(99,91,255,0.34)]' }: {
   isRunning: boolean; onRun: () => Promise<string | null>;
   label?: string; idleClass?: string;
 }) {
@@ -458,12 +458,12 @@ function ProjectPanel({ running, agentName, agentId, startedAt, sessionEventCoun
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className={cn('rounded-2xl border shadow-sm p-4 transition-colors duration-500', running ? 'bg-blue-950 border-blue-700' : 'bg-white border-slate-200')}>
+      className={cn('rounded-2xl border shadow-sm p-4 transition-colors duration-500', running ? 'bg-violet-950 border-violet-700' : 'bg-white border-slate-200')}>
       <div className="flex items-center justify-between mb-2">
-        <span className={cn('text-[10px] font-bold uppercase tracking-wider', running ? 'text-blue-300' : 'text-slate-400')}>Active Session</span>
+        <span className={cn('text-[10px] font-bold uppercase tracking-wider', running ? 'text-violet-300' : 'text-slate-400')}>Active Session</span>
         <div className="flex items-center gap-1.5">
           {running ? (
-            <><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" /></span><span className="text-[10px] font-semibold text-blue-300">RUNNING</span></>
+            <><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-violet-400" /></span><span className="text-[10px] font-semibold text-violet-300">RUNNING</span></>
           ) : (
             <><span className="h-2 w-2 rounded-full bg-slate-300" /><span className="text-[10px] font-semibold text-slate-400">IDLE</span></>
           )}
@@ -472,7 +472,7 @@ function ProjectPanel({ running, agentName, agentId, startedAt, sessionEventCoun
       {agentName ? (
         <p className={cn('text-sm font-semibold truncate mb-3', running ? 'text-white' : 'text-slate-800')}>{agentName}</p>
       ) : (
-        <p className={cn('text-sm truncate mb-3 italic', running ? 'text-blue-300' : 'text-slate-400')}>No agent selected</p>
+        <p className={cn('text-sm truncate mb-3 italic', running ? 'text-violet-300' : 'text-slate-400')}>No agent selected</p>
       )}
       <div className="grid grid-cols-3 gap-2 mb-3">
         {[
@@ -480,13 +480,13 @@ function ProjectPanel({ running, agentName, agentId, startedAt, sessionEventCoun
           { label: 'Events',  value: sessionEventCount > 0 ? String(sessionEventCount) : '—' },
           { label: 'Blocked', value: sessionEventCount > 0 ? String(sessionBlockedCount) : '—' },
         ].map(({ label, value }) => (
-          <div key={label} className={cn('rounded-xl p-2 text-center', running ? 'bg-blue-900/60' : 'bg-slate-50')}>
-            <p className={cn('text-[9px] font-medium mb-0.5', running ? 'text-blue-400' : 'text-slate-400')}>{label}</p>
+          <div key={label} className={cn('rounded-xl p-2 text-center', running ? 'bg-violet-900/60' : 'bg-slate-50')}>
+            <p className={cn('text-[9px] font-medium mb-0.5', running ? 'text-violet-400' : 'text-slate-400')}>{label}</p>
             <p className={cn('text-xs font-bold tabular-nums', running ? 'text-white' : 'text-slate-500')}>{value}</p>
           </div>
         ))}
       </div>
-      {agentId && <Link href={`/agents/${agentId}`} className={cn('text-[11px] font-medium hover:underline', running ? 'text-blue-400' : 'text-blue-600')}>View agent details →</Link>}
+      {agentId && <Link href={`/agents/${agentId}`} className={cn('text-[11px] font-medium hover:underline', running ? 'text-violet-400' : 'text-violet-600')}>View agent details →</Link>}
     </motion.div>
   );
 }
@@ -618,7 +618,7 @@ function GuardrailsPanel({ agentId }: { agentId: string | null }) {
                   <input
                     type="number" value={rateLimit} min={1} max={1000}
                     onChange={e => setRateLimit(Number(e.target.value))}
-                    className="w-14 text-xs font-bold text-slate-800 text-right bg-transparent border-b border-slate-300 focus:outline-none focus:border-blue-400"
+                    className="w-14 text-xs font-bold text-slate-800 text-right bg-transparent border-b border-slate-300 focus:outline-none focus:border-violet-400"
                   />
                   <span className="text-xs text-slate-400">calls/min</span>
                 </div>
@@ -693,7 +693,7 @@ function AgentSelector({ agents, selectedId, onSelect }: { agents: AgentStat[]; 
     <div className="relative">
       <button onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors text-sm">
-        <span className="h-2 w-2 rounded-full bg-blue-500" />
+        <span className="h-2 w-2 rounded-full bg-violet-600" />
         <span className="text-slate-700 font-medium">{selected?.name ?? 'Select agent'}</span>
         <Icon.ChevronDown />
       </button>
@@ -701,8 +701,8 @@ function AgentSelector({ agents, selectedId, onSelect }: { agents: AgentStat[]; 
         <div className="absolute top-full mt-1 left-0 z-20 w-56 rounded-xl border border-slate-200 bg-white shadow-lg py-1">
           {agents.map(a => (
             <button key={a.id} onClick={() => { onSelect(a.id); setOpen(false); }}
-              className={cn('w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2', a.id === selectedId ? 'text-blue-600 font-semibold' : 'text-slate-700')}>
-              <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', a.id === selectedId ? 'bg-blue-500' : 'bg-slate-300')} />
+              className={cn('w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2', a.id === selectedId ? 'text-violet-600 font-semibold' : 'text-slate-700')}>
+              <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', a.id === selectedId ? 'bg-violet-600' : 'bg-slate-300')} />
               <span className="truncate">{a.name}</span>
             </button>
           ))}
@@ -973,10 +973,10 @@ export default function DashboardClient() {
         className="shrink-0 bg-white border-b border-slate-200 px-8 h-16 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center shadow-sm bg-[linear-gradient(135deg,#6965f4_0%,#5b7dff_100%)]">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
             </div>
-            <span className="font-bold text-slate-900 text-lg tracking-tight">Alcatraz</span>
+            <span className="font-bold text-slate-900 text-lg tracking-[-0.05em]">Alcatraz</span>
           </div>
           <div className="w-px h-5 bg-slate-200" />
           <AgentSelector agents={agentStats} selectedId={selectedAgentId} onSelect={setSelectedAgentId} />
@@ -1031,8 +1031,8 @@ export default function DashboardClient() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2.5">
-                  <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-blue-500" /></span>
-                  <span className="text-xs font-medium text-blue-600">Realtime</span>
+                  <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-violet-500" /></span>
+                  <span className="text-xs font-medium text-violet-600">Realtime</span>
                 </div>
               </div>
 
