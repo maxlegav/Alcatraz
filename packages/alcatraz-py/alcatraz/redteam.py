@@ -47,6 +47,56 @@ Focus sur :
 """
 
 
+def scan_project(directory: str, anthropic_api_key: str = None) -> dict:
+    """
+    Crawl `directory`, identify agent files, scan each one, and merge results.
+
+    Returns the same shape as scan() but with an added `files_scanned` key.
+    """
+    from .finder import find_agent_files
+
+    agent_files = find_agent_files(directory)
+    if not agent_files:
+        return {
+            'files_scanned': [],
+            'vulnerabilities': [],
+            'rules': {'DENY': [], 'ALLOW': [], 'MAX_CALLS_PER_MIN': 10},
+            'risk_score': 0,
+        }
+
+    merged_vulns: list = []
+    merged_deny: list = []
+    merged_allow: list = []
+    max_risk = 0
+    max_calls = 10
+
+    for path in agent_files:
+        result = scan(path, anthropic_api_key=anthropic_api_key)
+        merged_vulns.extend(result.get('vulnerabilities', []))
+        rules = result.get('rules', {})
+        merged_deny.extend(rules.get('DENY', []))
+        merged_allow.extend(rules.get('ALLOW', []))
+        max_calls = max(max_calls, rules.get('MAX_CALLS_PER_MIN', 10))
+        max_risk = max(max_risk, result.get('risk_score', 0))
+
+    # Deduplicate rule lists preserving order
+    seen: set = set()
+    deny_deduped = [x for x in merged_deny if not (x in seen or seen.add(x))]  # type: ignore[func-returns-value]
+    seen = set()
+    allow_deduped = [x for x in merged_allow if x not in deny_deduped and not (x in seen or seen.add(x))]  # type: ignore[func-returns-value]
+
+    return {
+        'files_scanned': agent_files,
+        'vulnerabilities': merged_vulns,
+        'rules': {
+            'DENY': deny_deduped,
+            'ALLOW': allow_deduped,
+            'MAX_CALLS_PER_MIN': max_calls,
+        },
+        'risk_score': max_risk,
+    }
+
+
 def scan(file_path: str, anthropic_api_key: str = None) -> dict:
     """
     Scan an agent source file for security vulnerabilities using Claude.

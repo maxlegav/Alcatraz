@@ -35,17 +35,19 @@ def serve():
 
 
 @main.command()
-@click.argument("file_path", type=click.Path(exists=True))
+@click.argument("target", type=click.Path(exists=True), default=".")
 @click.option("--api-key", envvar="ANTHROPIC_API_KEY", help="Anthropic API key")
 @click.option("--output", "-o", type=click.Path(), help="Save JSON report to this file")
 @click.option("--json", "raw_json", is_flag=True, help="Print raw JSON only (no formatting)")
-def scan(file_path: str, api_key: str, output: str, raw_json: bool):
-    """Scan an agent source file for security vulnerabilities."""
-    from .redteam import scan as _scan
+def scan(target: str, api_key: str, output: str, raw_json: bool):
+    """Scan an agent source file or project directory for security vulnerabilities."""
+    from .redteam import scan as _scan, scan_project as _scan_project
 
     if not api_key:
         console.print("[red]Error:[/red] ANTHROPIC_API_KEY is not set.")
         sys.exit(1)
+
+    is_dir = os.path.isdir(target)
 
     if not raw_json:
         console.print(
@@ -54,12 +56,30 @@ def scan(file_path: str, api_key: str, output: str, raw_json: bool):
                 border_style="cyan",
             )
         )
-        console.print(f"\n[dim]Target:[/dim]  [bold]{file_path}[/bold]")
-        console.print("[dim]Model:[/dim]   claude-sonnet-4-6")
-        console.print("[dim]Status:[/dim]  Analyzing...\n")
+        if is_dir:
+            console.print(f"\n[dim]Target:[/dim]  [bold]{target}/[/bold] (project scan)")
+            console.print("[dim]Model:[/dim]   claude-sonnet-4-6")
+            console.print("[dim]Status:[/dim]  Discovering agent files...\n")
+        else:
+            console.print(f"\n[dim]Target:[/dim]  [bold]{target}[/bold]")
+            console.print("[dim]Model:[/dim]   claude-sonnet-4-6")
+            console.print("[dim]Status:[/dim]  Analyzing...\n")
 
     try:
-        result = _scan(file_path, anthropic_api_key=api_key)
+        if is_dir:
+            from .finder import find_agent_files
+            agent_files = find_agent_files(target)
+            if not agent_files:
+                console.print("[yellow]No agent files found.[/yellow] Make sure your project imports a supported framework (LangChain, CrewAI, OpenAI, Anthropic, etc.) and defines tools.")
+                sys.exit(0)
+            if not raw_json:
+                console.print(f"[green]Found {len(agent_files)} agent file(s):[/green]")
+                for f in agent_files:
+                    console.print(f"  [dim]→[/dim] {f}")
+                console.print()
+            result = _scan_project(target, anthropic_api_key=api_key)
+        else:
+            result = _scan(target, anthropic_api_key=api_key)
     except Exception as e:
         console.print(f"[red]Scan failed:[/red] {e}")
         sys.exit(1)
