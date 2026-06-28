@@ -14,13 +14,13 @@ export async function loadDashboardSnapshot(fetchImpl: FetchLike = fetch) {
 
   const agentsJson = (await agentsRes.json()) as AgentsResponse;
 
-  // Start all stats at zero — only accumulate from the current live session
+  // Start call stats at zero — only accumulate from the current live session.
+  // Preserve latestInsight from the API response so the Insights panel has data.
   const agentStats: AgentStat[] = (agentsJson.agents ?? []).map((agent) => ({
     ...agent,
     totalCalls: 0,
     blockedCalls: 0,
     lastActive: null,
-    latestInsight: null,
   }));
 
   const agentNameMap = Object.fromEntries(agentStats.map((agent) => [agent.id, agent.name]));

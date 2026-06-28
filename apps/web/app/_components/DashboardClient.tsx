@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase/client';
 import { formatTimeAgo, formatTime } from '@/lib/agent-status';
 import type { AgentStat, FeedEntry } from './types';
+import type { InsightSummary } from '@/lib/insight-summary';
 import type { Guardrail } from '@/lib/supabase/types';
 import { loadDashboardData, upsertRealtimeAgentStats } from './dashboard-data';
 import AnalyzeButton from '../agents/[id]/AnalyzeButton';
@@ -510,8 +511,7 @@ function ProjectPanel({ running, agentName, agentId, startedAt, sessionEventCoun
 }
 
 // ── Guardrails Panel ──────────────────────────────────────────────────────────
-const PANEL_TABS = ['Guardrails', 'HITL'] as const;
-type PanelTab = typeof PANEL_TABS[number];
+type PanelTab = 'Guardrails' | 'HITL' | 'Insights';
 
 function EditableChips({
   items, color, onAdd, onRemove,
@@ -552,7 +552,7 @@ function EditableChips({
   );
 }
 
-function GuardrailsPanel({ agentId }: { agentId: string | null }) {
+function GuardrailsPanel({ agentId, insight, ffInsights }: { agentId: string | null; insight?: InsightSummary | null; ffInsights?: boolean }) {
   const [tab, setTab]           = useState<PanelTab>('Guardrails');
   const [guardrail, setGuardrail] = useState<Guardrail | null>(null);
   const [deny, setDeny]         = useState<string[]>([]);
@@ -561,6 +561,30 @@ function GuardrailsPanel({ agentId }: { agentId: string | null }) {
   const [rateLimit, setRateLimit] = useState<number>(10);
   const [loading, setLoading]   = useState(false);
   const [saved, setSaved]       = useState(false);
+  const [adding, setAdding]     = useState(false);
+  const [added, setAdded]       = useState(false);
+  const [addErr, setAddErr]     = useState('');
+
+  const tabs: PanelTab[] = ['Guardrails', 'HITL', ...(ffInsights ? ['Insights' as PanelTab] : [])];
+  const top = insight?.top_pattern ?? null;
+
+  const handleAddToDeny = async () => {
+    if (!agentId || !top || added) return;
+    setAdding(true); setAddErr('');
+    try {
+      const res = await fetch('/api/guardrails', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, tool_name: top.tool_name }),
+      });
+      if (!res.ok) { const d = await res.json() as { error?: string }; throw new Error(d.error ?? 'Failed'); }
+      setAdded(true);
+    } catch (e) {
+      setAddErr(e instanceof Error ? e.message : 'Failed to add rule');
+    } finally {
+      setAdding(false);
+    }
+  };
 
   useEffect(() => {
     if (!agentId) return;
@@ -590,10 +614,15 @@ function GuardrailsPanel({ agentId }: { agentId: string | null }) {
 
       {/* Tabs */}
       <div className="px-4 pt-3 border-b border-slate-100 flex items-center gap-1 shrink-0">
-        {PANEL_TABS.map(t => (
+        {tabs.map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={cn('px-3 py-1.5 rounded-t-lg text-xs font-semibold transition-colors', tab === t ? 'bg-white border-x border-t border-slate-200 text-slate-800 -mb-px' : 'text-slate-400 hover:text-slate-600')}>
-            {t}
+            {t === 'Insights' ? (
+              <span className="flex items-center gap-1">
+                Insights
+                <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-violet-100 text-violet-600">Labs</span>
+              </span>
+            ) : t}
           </button>
         ))}
       </div>
@@ -648,7 +677,7 @@ function GuardrailsPanel({ agentId }: { agentId: string | null }) {
               </button>
             </div>
           )
-        ) : (
+        ) : tab === 'HITL' ? (
           /* HITL tab */
           <div className="space-y-4">
             <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-3">
@@ -688,6 +717,71 @@ function GuardrailsPanel({ agentId }: { agentId: string | null }) {
                 </div>
               ))}
             </div>
+          </div>
+        ) : (
+          /* Insights tab */
+          <div className="space-y-3">
+            {!agentId ? (
+              <p className="text-xs text-slate-400 text-center py-4">Select an agent to view insights</p>
+            ) : !top ? (
+              <p className="text-xs text-slate-400 text-center py-4">No analysis yet — click Analyze below</p>
+            ) : (
+              <>
+                {insight && (
+                  <p className="text-[10px] text-slate-400">Last analysis {formatTimeAgo(insight.created_at, Date.now())}</p>
+                )}
+                {/* Top pattern card */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                    <code className="font-mono text-xs font-bold text-slate-800">{top.tool_name}</code>
+                    <span className="text-[10px] font-semibold bg-slate-200 text-slate-600 rounded px-1.5 py-0.5">×{top.blocked_count}</span>
+                    {top.severity && (
+                      <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded', SEVERITY_STYLE[top.severity])}>
+                        {top.severity}
+                      </span>
+                    )}
+                    {insight?.recurring_tool_names.includes(top.tool_name) && (
+                      <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 rounded px-1.5 py-0.5">Recurring</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">{top.suggestion}</p>
+                </div>
+
+                {/* Recurring summary */}
+                {insight && insight.recurring_tool_names.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 .49-3" /></svg>
+                    {insight.recurring_tool_names.length} tool{insight.recurring_tool_names.length > 1 ? 's' : ''} recurring from prior analysis
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddToDeny}
+                    disabled={adding || added}
+                    className={cn(
+                      'flex-1 flex items-center justify-center gap-1.5 rounded-xl text-xs font-semibold py-2 transition-colors',
+                      added  ? 'bg-emerald-50 border border-emerald-200 text-emerald-600' :
+                      addErr ? 'bg-red-50 border border-red-200 text-red-600' :
+                      adding ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed' :
+                               'bg-red-50 border border-red-200 text-red-700 hover:bg-red-100',
+                    )}
+                  >
+                    {added  ? <><Icon.Check /> Added to DENY</> :
+                     addErr ? addErr :
+                     adding ? 'Adding…' :
+                              <><Icon.Lock /> Add to DENY</>}
+                  </button>
+                  <Link
+                    href={`/agents/${agentId}`}
+                    className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-violet-600 bg-violet-50 border border-violet-200 hover:bg-violet-100 transition-colors whitespace-nowrap"
+                  >
+                    <Icon.Report /> View analysis
+                  </Link>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -751,6 +845,7 @@ export default function DashboardClient() {
   // Feature flags (persisted in localStorage)
   const [ffCompare,    setFfCompare]    = useState(() => typeof window !== 'undefined' && localStorage.getItem('ff_compare')     === 'true');
   const [ffAttackPath, setFfAttackPath] = useState(() => typeof window !== 'undefined' && localStorage.getItem('ff_attack_path') === 'true');
+  const [ffInsights,   setFfInsights]   = useState(() => typeof window !== 'undefined' && localStorage.getItem('ff_insights')    === 'true');
   const [ffPanelOpen,  setFfPanelOpen]  = useState(false);
   const [attackPathOpen, setAttackPathOpen] = useState(false);
   const toggleFf = (key: string, setter: React.Dispatch<React.SetStateAction<boolean>>) => (v: boolean) => {
@@ -1017,7 +1112,7 @@ export default function DashboardClient() {
               onClick={() => setFfPanelOpen(o => !o)}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors',
-                (ffCompare || ffAttackPath)
+                (ffCompare || ffAttackPath || ffInsights)
                   ? 'border-violet-300 bg-violet-50 text-violet-700'
                   : 'border-slate-200 hover:border-slate-300 text-slate-500 hover:text-slate-700',
               )}
@@ -1026,7 +1121,7 @@ export default function DashboardClient() {
                 <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
               </svg>
               Labs
-              {(ffCompare || ffAttackPath) && <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />}
+              {(ffCompare || ffAttackPath || ffInsights) && <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />}
             </button>
             {ffPanelOpen && (
               <div className="absolute top-full right-0 mt-1.5 z-30 w-68 rounded-xl border border-slate-200 bg-white shadow-xl p-3 space-y-1.5">
@@ -1034,6 +1129,7 @@ export default function DashboardClient() {
                 {([
                   { key: 'ff_compare',     label: 'Side-by-side comparison',    desc: 'Unprotected vs protected feeds',  val: ffCompare,    set: toggleFf('ff_compare',     setFfCompare) },
                   { key: 'ff_attack_path', label: 'Run workflow visualization',  desc: 'View run as a flow diagram',      val: ffAttackPath, set: toggleFf('ff_attack_path', setFfAttackPath) },
+                  { key: 'ff_insights',    label: 'Insights panel',              desc: 'Top pattern + quick DENY action', val: ffInsights,   set: toggleFf('ff_insights',    setFfInsights) },
                 ] as const).map(({ label, desc, val, set }) => (
                   <button key={label} onClick={() => set(!val)}
                     className={cn('w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-colors',
@@ -1163,7 +1259,7 @@ export default function DashboardClient() {
                 sessionBlockedCount={sessionFeed.filter(e => e.displayStatus === 'BLOCKED').length}
               />
               <div className="flex-1 min-h-0 flex flex-col">
-                <GuardrailsPanel agentId={selectedAgentId} />
+                <GuardrailsPanel agentId={selectedAgentId} insight={selectedAgent?.latestInsight} ffInsights={ffInsights} />
               </div>
             </div>
           </div>

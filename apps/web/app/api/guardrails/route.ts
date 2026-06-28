@@ -44,6 +44,63 @@ export async function GET(req: NextRequest) {
 }
 
 /**
+ * PATCH /api/guardrails
+ *
+ * Merges a single tool name into deny_patterns for an agent.
+ * Dashboard admin route — no Bearer auth required.
+ *
+ * Body:
+ *   agent_id   string  required
+ *   tool_name  string  required
+ */
+export async function PATCH(req: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const { agent_id, tool_name } = body as { agent_id?: string; tool_name?: string };
+  if (!agent_id || !tool_name) {
+    return NextResponse.json({ error: "agent_id and tool_name are required" }, { status: 400 });
+  }
+
+  const [{ data: agent }, { data: existing }] = await Promise.all([
+    supabaseAdmin.from("agents").select("id, version").eq("id", agent_id).maybeSingle(),
+    supabaseAdmin.from("guardrails").select("*").eq("agent_id", agent_id)
+      .order("agent_version", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+
+  if (!agent) {
+    return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+  }
+
+  const deny_patterns = [...new Set([...(existing?.deny_patterns ?? []), tool_name])];
+
+  const { data, error } = await supabaseAdmin
+    .from("guardrails")
+    .upsert(
+      {
+        agent_id,
+        agent_version: existing?.agent_version ?? agent.version,
+        deny_patterns,
+        allow_patterns: existing?.allow_patterns ?? [],
+        max_calls_per_min: existing?.max_calls_per_min ?? null,
+      },
+      { onConflict: "agent_id,agent_version" },
+    )
+    .select()
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ guardrail: data });
+}
+
+/**
  * POST /api/guardrails
  *
  * Upserts guardrails for a specific agent version.
