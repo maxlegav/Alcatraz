@@ -349,21 +349,43 @@ function ReportReadyToast({ href, onClose }: { href: string; onClose: () => void
 }
 
 // ── HITL Panel ────────────────────────────────────────────────────────────────
-function HitlPanel({ requests, agentNameMap, onDecide }: {
+function HitlPanel({ requests, agentNameMap, onDecide, hitlThresholds }: {
   requests: HitlRequest[]; agentNameMap: Record<string, string>;
   onDecide: (id: string, status: 'approved' | 'denied') => Promise<void>;
+  hitlThresholds: Record<SeverityLevel, boolean>;
 }) {
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
   const [minimized, setMinimized] = useState(false);
+  const autoApproved = useRef<Set<string>>(new Set());
+
+  // Auto-approve requests whose severity is below the HITL threshold
+  useEffect(() => {
+    for (const req of requests) {
+      if (autoApproved.current.has(req.id)) continue;
+      const risk = assessRisk(req.tool_name, req.tool_input);
+      const level = risk.level as SeverityLevel;
+      if (!hitlThresholds[level]) {
+        autoApproved.current.add(req.id);
+        void onDecide(req.id, 'approved');
+      }
+    }
+  }, [hitlThresholds, requests, onDecide]);
 
   const decide = async (id: string, status: 'approved' | 'denied') => {
     setDeciding(p => ({ ...p, [id]: true }));
     await onDecide(id, status);
     setDeciding(p => ({ ...p, [id]: false }));
   };
-  if (requests.length === 0) return null;
 
-  const sorted = [...requests].sort((a, b) => {
+  // Only show requests that meet the current threshold
+  const visible = requests.filter(req => {
+    const level = assessRisk(req.tool_name, req.tool_input).level as SeverityLevel;
+    return hitlThresholds[level];
+  });
+
+  if (visible.length === 0) return null;
+
+  const sorted = [...visible].sort((a, b) => {
     const ra = assessRisk(a.tool_name, a.tool_input);
     const rb = assessRisk(b.tool_name, b.tool_input);
     return rb.cvss - ra.cvss;
@@ -381,7 +403,7 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
         </span>
         <span className="text-sm font-bold">
-          {requests.length} approval{requests.length > 1 ? 's' : ''} pending
+          {visible.length} approval{visible.length > 1 ? 's' : ''} pending
         </span>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="18 15 12 9 6 15" />
@@ -404,7 +426,7 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-amber-900">Human Approval Required</p>
           <p className="text-xs text-amber-700">
-            {requests.length} action{requests.length > 1 ? 's' : ''} pending · highest risk shown first
+            {visible.length} action{visible.length > 1 ? 's' : ''} pending · highest risk shown first
           </p>
         </div>
         <button
@@ -558,7 +580,11 @@ function loadHitlThresholds(): Record<SeverityLevel, boolean> {
   return { ...HITL_SEVERITY_DEFAULT };
 }
 
-function GuardrailsPanel({ agentId, insight, ffInsights }: { agentId: string | null; insight?: InsightSummary | null; ffInsights?: boolean }) {
+function GuardrailsPanel({ agentId, insight, ffInsights, hitlThresholds, onToggleHitlSeverity }: {
+  agentId: string | null; insight?: InsightSummary | null; ffInsights?: boolean;
+  hitlThresholds: Record<SeverityLevel, boolean>;
+  onToggleHitlSeverity: (level: SeverityLevel) => void;
+}) {
   const [tab, setTab]           = useState<PanelTab>('Guardrails');
   const [guardrail, setGuardrail] = useState<Guardrail | null>(null);
   const [deny, setDeny]         = useState<string[]>([]);
@@ -570,16 +596,6 @@ function GuardrailsPanel({ agentId, insight, ffInsights }: { agentId: string | n
   const [adding, setAdding]     = useState(false);
   const [added, setAdded]       = useState(false);
   const [addErr, setAddErr]     = useState('');
-  const [hitlThresholds, setHitlThresholds] = useState<Record<SeverityLevel, boolean>>(loadHitlThresholds);
-
-  const toggleHitlSeverity = (level: SeverityLevel) => {
-    if (level === 'critical') return; // critical is always on
-    setHitlThresholds(prev => {
-      const next = { ...prev, [level]: !prev[level] };
-      try { sessionStorage.setItem(HITL_SEVERITY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  };
 
   const tabs: PanelTab[] = ['Guardrails', 'HITL', ...(ffInsights ? ['Insights' as PanelTab] : [])];
   const top = insight?.top_pattern ?? null;
@@ -722,7 +738,7 @@ function GuardrailsPanel({ agentId, insight, ffInsights }: { agentId: string | n
                           {on ? 'HITL' : 'skip'}
                         </span>
                         <button
-                          onClick={() => toggleHitlSeverity(level)}
+                          onClick={() => onToggleHitlSeverity(level)}
                           disabled={locked}
                           className={cn(
                             'relative inline-flex h-5 w-9 rounded-full transition-colors',
@@ -890,6 +906,16 @@ export default function DashboardClient() {
   const [isLoading, setIsLoading]           = useState(true);
   const [error, setError]                   = useState<string | null>(null);
   const [hitlPending, setHitlPending]       = useState<HitlRequest[]>([]);
+  const [hitlThresholds, setHitlThresholds] = useState<Record<SeverityLevel, boolean>>(loadHitlThresholds);
+
+  const toggleHitlSeverity = useCallback((level: SeverityLevel) => {
+    if (level === 'critical') return;
+    setHitlThresholds(prev => {
+      const next = { ...prev, [level]: !prev[level] };
+      try { sessionStorage.setItem(HITL_SEVERITY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
   const [runStatus, setRunStatus]           = useState<RunStatus>({ online: false, running: false });
   // Persist sessions + epoch across navigations (cleared only on onboarding reset)
   const [sessions, setSessions] = useState<Session[]>(() => {
@@ -1329,7 +1355,7 @@ export default function DashboardClient() {
             {/* Right panel */}
             <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
               <div className="flex-1 min-h-0 flex flex-col">
-                <GuardrailsPanel agentId={selectedAgentId} insight={selectedAgent?.latestInsight} ffInsights={ffInsights} />
+                <GuardrailsPanel agentId={selectedAgentId} insight={selectedAgent?.latestInsight} ffInsights={ffInsights} hitlThresholds={hitlThresholds} onToggleHitlSeverity={toggleHitlSeverity} />
               </div>
             </div>
           </div>
@@ -1338,7 +1364,7 @@ export default function DashboardClient() {
 
       {/* Modals + toasts */}
       <AnimatePresence>
-        {hitlPending.length > 0 && <HitlPanel requests={hitlPending} agentNameMap={agentNameMap} onDecide={handleHitlDecide} />}
+        {hitlPending.length > 0 && <HitlPanel requests={hitlPending} agentNameMap={agentNameMap} onDecide={handleHitlDecide} hitlThresholds={hitlThresholds} />}
       </AnimatePresence>
 
       <AnimatePresence>
