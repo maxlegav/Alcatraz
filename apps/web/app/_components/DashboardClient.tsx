@@ -1009,21 +1009,10 @@ export default function DashboardClient() {
 
         if (prevRunning.current && !runRes.running) {
           setSessions(prev => {
-            const lastIdx = prev.length - 1;
-            const last = prev[lastIdx];
-            if (!last || last.endedAt) return prev;
-
-            const startMs  = new Date(last.startedAt).getTime();
-            const endedAt  = new Date().toISOString();
-            const endMs    = new Date(endedAt).getTime();
-            const hasEvents = feedRef.current.some(e => {
-              const t = new Date(e.created_at).getTime();
-              return t >= startMs && t <= endMs;
-            });
-
-            // Discard runs that produced no tool calls — nothing to report
-            if (!hasEvents) return prev.filter((_, i) => i !== lastIdx);
-
+            const lastIdx = prev.findLastIndex(s => !s.endedAt);
+            if (lastIdx === -1) return prev;
+            const last    = prev[lastIdx];
+            const endedAt = new Date().toISOString();
             const updated = prev.map((s, i) => i === lastIdx ? { ...s, endedAt } : s);
             setReportToast({ href: `/report?from=${encodeURIComponent(last.startedAt)}&to=${encodeURIComponent(endedAt)}` });
             return updated;
@@ -1036,20 +1025,28 @@ export default function DashboardClient() {
   }, []);
 
   const startAgent = useCallback(async (demo: DemoType | 'long'): Promise<void> => {
+    // Create session tab immediately so the UI responds without waiting for the API round-trip
+    const startedAt  = new Date().toISOString();
+    const sessionId  = crypto.randomUUID();
+    const newSession: Session = { id: sessionId, n: sessions.length + 1, startedAt };
+    if (!sessionEpoch.current) {
+      sessionEpoch.current = startedAt;
+      sessionStorage.setItem('alc_epoch', startedAt);
+    }
+    setSessions(prev => [...prev, newSession]);
+    setActiveSessionId('all');
+    setRunStatus(prev => ({ ...prev, running: true, started_at: startedAt }));
+    prevRunning.current = true;
     try {
       const res = await fetch(`/api/run?demo=${demo}`, { method: 'POST' });
-      if (!res.ok) return; // 409 = already at max concurrent, silently skip
-      const startedAt = new Date().toISOString();
-      if (!sessionEpoch.current) {
-        sessionEpoch.current = startedAt;
-        sessionStorage.setItem('alc_epoch', startedAt);
+      if (!res.ok) {
+        // 409 = already at max concurrent — roll back the optimistic session
+        setSessions(prev => prev.filter(s => s.id !== sessionId));
       }
-      const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
-      setSessions(prev => [...prev, newSession]);
-      setActiveSessionId('all'); // switch to "all" view when a new run starts
-      setRunStatus(prev => ({ ...prev, running: true, started_at: startedAt }));
-      prevRunning.current = true;
-    } catch { /* agent server offline — scheduler will retry later */ }
+    } catch {
+      // Agent server offline — roll back
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+    }
   }, [sessions.length]);
 
   const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
