@@ -935,11 +935,10 @@ export default function DashboardClient() {
         setRunStatus(runRes);
 
         if (prevRunning.current && !runRes.running) {
-          // Mark last session as ended + show toast
+          // Mark all unfinished sessions as ended + show toast for the most recent
+          const endedAt = new Date().toISOString();
           setSessions(prev => {
-            const updated = prev.map((s, i) =>
-              i === prev.length - 1 && !s.endedAt ? { ...s, endedAt: new Date().toISOString() } : s
-            );
+            const updated = prev.map(s => s.endedAt ? s : { ...s, endedAt });
             const last = updated.filter(s => s.endedAt).at(-1);
             if (last) {
               setReportToast({ href: `/report?from=${encodeURIComponent(last.startedAt)}&to=${encodeURIComponent(last.endedAt!)}` });
@@ -1184,18 +1183,8 @@ export default function DashboardClient() {
             </motion.div>
 
             {/* Right panel */}
-            <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
-              <ProjectPanel
-                running={runStatus.running}
-                agentName={sessionAgentName ?? selectedAgent?.name ?? null}
-                agentId={runStatus.agent_id ?? selectedAgentId}
-                startedAt={runStatus.started_at ?? null}
-                sessionEventCount={sessionFeed.length}
-                sessionBlockedCount={sessionFeed.filter(e => e.displayStatus === 'BLOCKED').length}
-              />
-              <div className="flex-1 min-h-0 flex flex-col">
-                <GuardrailsPanel agentId={selectedAgentId} />
-              </div>
+            <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <GuardrailsPanel agentId={selectedAgentId} />
             </div>
           </div>
         </div>
