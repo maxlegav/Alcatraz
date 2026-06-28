@@ -20,7 +20,7 @@ type HitlRequest = {
   status: 'pending' | 'approved' | 'denied'; created_at: string;
 };
 type Session = { id: string; n: number; startedAt: string; endedAt?: string };
-type RunStatus = { online: boolean; running: boolean; agent_id?: string; started_at?: string };
+type RunStatus = { online: boolean; running: boolean; run_count?: number; agent_id?: string; started_at?: string };
 type RiskLevel = 'critical' | 'high' | 'medium' | 'low';
 type RiskInfo = { level: RiskLevel; reason: string; cvss: number };
 
@@ -361,6 +361,12 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
   };
   if (requests.length === 0) return null;
 
+  const sorted = [...requests].sort((a, b) => {
+    const ra = assessRisk(a.tool_name, a.tool_input);
+    const rb = assessRisk(b.tool_name, b.tool_input);
+    return rb.cvss - ra.cvss;
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 40, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -374,11 +380,13 @@ function HitlPanel({ requests, agentNameMap, onDecide }: {
         </span>
         <div>
           <p className="text-sm font-bold text-amber-900">Human Approval Required</p>
-          <p className="text-xs text-amber-700">{requests.length} action{requests.length > 1 ? 's' : ''} waiting for review</p>
+          <p className="text-xs text-amber-700">
+            {requests.length} action{requests.length > 1 ? 's' : ''} pending · highest risk shown first
+          </p>
         </div>
       </div>
       <div className="max-h-[480px] overflow-y-auto divide-y divide-slate-100">
-        {requests.map(req => {
+        {sorted.map(req => {
           const risk = assessRisk(req.tool_name, req.tool_input);
           const rs   = RISK_STYLE[risk.level];
           return (
@@ -824,6 +832,10 @@ function AgentSelector({ agents, selectedId, onSelect }: { agents: AgentStat[]; 
   );
 }
 
+// ── Auto-scheduler demo types ─────────────────────────────────────────────────
+const DEMO_TYPES = ['research', 'hr', 'devops', 'finance', 'support'] as const;
+type DemoType = typeof DEMO_TYPES[number];
+
 // ── Dashboard client ──────────────────────────────────────────────────────────
 export default function DashboardClient() {
   const [now, setNow]                       = useState(() => Date.now());
@@ -1036,31 +1048,10 @@ export default function DashboardClient() {
     return () => clearInterval(poll);
   }, []);
 
-  const handleRun = useCallback(async (): Promise<string | null> => {
+  const startAgent = useCallback(async (demo: DemoType): Promise<void> => {
     try {
-      const res  = await fetch('/api/run', { method: 'POST' });
-      const data = await res.json() as { status?: string; error?: string; hint?: string };
-      if (!res.ok) return data.hint ?? data.error ?? 'Failed to start';
-      const startedAt = new Date().toISOString();
-      // Set the epoch so polling starts collecting events from now
-      if (!sessionEpoch.current) {
-        sessionEpoch.current = startedAt;
-        sessionStorage.setItem('alc_epoch', startedAt);
-      }
-      const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
-      setSessions(prev => [...prev, newSession]);
-      setActiveSessionId(newSession.id);
-      setRunStatus(prev => ({ ...prev, running: true, started_at: startedAt }));
-      prevRunning.current = true;
-      return null;
-    } catch { return 'Agent server offline — run: python -m alcatraz.serve'; }
-  }, [sessions.length]);
-
-  const handleRunHR = useCallback(async (): Promise<string | null> => {
-    try {
-      const res  = await fetch('/api/run?demo=hr', { method: 'POST' });
-      const data = await res.json() as { status?: string; error?: string; hint?: string };
-      if (!res.ok) return data.hint ?? data.error ?? 'Failed to start HR pipeline';
+      const res = await fetch(`/api/run?demo=${demo}`, { method: 'POST' });
+      if (!res.ok) return; // 409 = already at max concurrent, silently skip
       const startedAt = new Date().toISOString();
       if (!sessionEpoch.current) {
         sessionEpoch.current = startedAt;
@@ -1068,17 +1059,67 @@ export default function DashboardClient() {
       }
       const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
       setSessions(prev => [...prev, newSession]);
-      setActiveSessionId(newSession.id);
+      setActiveSessionId('all'); // switch to "all" view when a new run starts
       setRunStatus(prev => ({ ...prev, running: true, started_at: startedAt }));
       prevRunning.current = true;
-      return null;
-    } catch { return 'Agent server offline — run: python -m alcatraz.serve'; }
+    } catch { /* agent server offline — scheduler will retry later */ }
   }, [sessions.length]);
 
   const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
     await fetch(`/api/hitl/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
     setHitlPending(prev => prev.filter(r => r.id !== id));
   }, []);
+
+  // Auto-scheduler: fires 2 agents on mount, then one at a time on random intervals.
+  // Fallback watchdog triggers if nothing has run for >60s.
+  const lastRunAt = useRef<number>(0);
+  const schedulerActive = useRef(false);
+
+  useEffect(() => {
+    if (schedulerActive.current) return;
+    schedulerActive.current = true;
+
+    const pickDemo = (): DemoType => DEMO_TYPES[Math.floor(Math.random() * DEMO_TYPES.length)];
+    const randomDelay = () => 20_000 + Math.random() * 25_000; // 20–45s
+
+    // Fire 2 agents immediately with a 1–2s stagger
+    const fireInitial = async () => {
+      await startAgent(pickDemo());
+      lastRunAt.current = Date.now();
+      await new Promise(r => setTimeout(r, 1000 + Math.random() * 1000));
+      await startAgent(pickDemo());
+      lastRunAt.current = Date.now();
+    };
+
+    // After each interval, fire one agent
+    const scheduleNext = () => {
+      const delay = randomDelay();
+      return setTimeout(async () => {
+        await startAgent(pickDemo());
+        lastRunAt.current = Date.now();
+        nextTimer = scheduleNext();
+      }, delay);
+    };
+
+    // Watchdog: if nothing has run in 60s, force one
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastRunAt.current > 60_000) {
+        void startAgent(pickDemo());
+        lastRunAt.current = Date.now();
+      }
+    }, 10_000);
+
+    let nextTimer: ReturnType<typeof setTimeout>;
+
+    void fireInitial().then(() => {
+      nextTimer = scheduleNext();
+    });
+
+    return () => {
+      clearInterval(watchdog);
+      clearTimeout(nextTimer);
+    };
+  }, [startAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedAgent   = agentStats.find(a => a.id === selectedAgentId) ?? null;
   const sessionAgentName = runStatus.agent_id ? (agentNameMap[runStatus.agent_id] ?? null) : null;
@@ -1152,16 +1193,6 @@ export default function DashboardClient() {
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
             Onboarding
           </Link>
-          <div className="w-px h-5 bg-slate-200" />
-          <div className="flex items-start gap-2">
-            <RunButton isRunning={runStatus.running} onRun={handleRun} />
-            <RunButton
-              isRunning={runStatus.running}
-              onRun={handleRunHR}
-              label="HR Pipeline"
-              idleClass="bg-violet-600 hover:bg-violet-700 text-white shadow-sm"
-            />
-          </div>
         </div>
       </motion.header>
 
@@ -1233,7 +1264,7 @@ export default function DashboardClient() {
                     <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4"><Icon.Activity /></div>
                     <p className="text-sm font-medium text-slate-600">{activeSessionId === 'all' ? 'No events yet' : 'No events in this run'}</p>
                     <p className="text-xs text-slate-400 mt-1 max-w-[220px]">
-                      {sessionEpoch.current ? 'Agent is starting — events will appear here in real time' : 'Click "Run Agent" to launch — all tool calls will stream here live'}
+                      {sessionEpoch.current ? 'Agent is starting — events will appear here in real time' : 'Agents are starting — tool calls will stream here in real time'}
                     </p>
                   </div>
                 ) : (

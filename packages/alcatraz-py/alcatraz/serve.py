@@ -27,15 +27,22 @@ except ImportError:
     pass
 
 _state: dict = {
-    "running": False,
+    "run_count": 0,
     "agent_id": os.environ.get("ALCATRAZ_AGENT_ID"),
     "started_at": None,
 }
 
-# Resolve demo script path relative to this file
-_DEMO_SCRIPT = (
-    Path(__file__).parent.parent.parent.parent / "demo" / "langchain" / "research_agent.py"
-)
+_state_lock = threading.Lock()
+
+_DEMO_ROOT = Path(__file__).parent.parent.parent.parent / "demo" / "langchain"
+
+_DEMO_SCRIPTS = {
+    "research": _DEMO_ROOT / "research_agent.py",
+    "hr":       _DEMO_ROOT / "agent_protected.py",
+    "devops":   _DEMO_ROOT / "devops_agent.py",
+    "finance":  _DEMO_ROOT / "finance_agent.py",
+    "support":  _DEMO_ROOT / "support_agent.py",
+}
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -44,20 +51,35 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/run":
-            if _state["running"]:
-                self._send(409, {"error": "Agent already running"})
-                return
-            _state["running"] = True
-            _state["started_at"] = datetime.datetime.utcnow().isoformat() + "Z"
-            threading.Thread(target=_run_agent, daemon=True).start()
-            self._send(200, {"status": "started"})
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else b"{}"
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+
+            demo = data.get("demo", "research")
+            script = _DEMO_SCRIPTS.get(demo, _DEMO_SCRIPTS["research"])
+
+            with _state_lock:
+                if _state["run_count"] >= 2:
+                    self._send(409, {"error": "Max concurrent agents running"})
+                    return
+                _state["run_count"] += 1
+                _state["started_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+
+            threading.Thread(target=_run_agent, args=(script, demo), daemon=True).start()
+            self._send(200, {"status": "started", "demo": demo})
         else:
             self._send(404, {"error": "Not found"})
 
     def do_GET(self):
         if self.path == "/status":
+            with _state_lock:
+                run_count = _state["run_count"]
             self._send(200, {
-                "running": _state["running"],
+                "running": run_count > 0,
+                "run_count": run_count,
                 "agent_id": _state.get("agent_id"),
                 "started_at": _state.get("started_at"),
             })
@@ -78,20 +100,22 @@ class _Handler(BaseHTTPRequestHandler):
         pass  # silence per-request logs
 
 
-def _run_agent():
+def _run_agent(script: Path, demo: str):
     """Run the demo agent silently — output goes to dashboard, not terminal."""
     agent_id = _state.get("agent_id") or "unknown"
-    print(f"[Alcatraz] ▶  Agent started  — {agent_id}", flush=True)
+    print(f"[Alcatraz] ▶  Agent started  — {agent_id} ({demo})", flush=True)
     try:
         subprocess.run(
-            [sys.executable, str(_DEMO_SCRIPT)],
+            [sys.executable, str(script)],
             env={**os.environ},
             capture_output=True,  # silent: all output flows to Supabase via SDK
         )
     finally:
-        _state["running"] = False
-        _state["started_at"] = None
-        print(f"[Alcatraz] ■  Agent finished — {agent_id}", flush=True)
+        with _state_lock:
+            _state["run_count"] = max(0, _state["run_count"] - 1)
+            if _state["run_count"] == 0:
+                _state["started_at"] = None
+        print(f"[Alcatraz] ■  Agent finished — {agent_id} ({demo})", flush=True)
 
 
 def main():
