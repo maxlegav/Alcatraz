@@ -20,7 +20,7 @@ export function Navbar() {
       </nav>
 
       <a
-        href="/dashboard"
+        href="/onboarding"
         className="inline-flex items-center rounded-full border border-slate-200 bg-white px-6 py-2.5 text-[0.925rem] font-medium text-[#635bff] shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:shadow-[0_6px_20px_rgba(15,23,42,0.09)] transition-shadow"
       >
         Go to dashboard

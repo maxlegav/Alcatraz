@@ -36,7 +36,7 @@ export function HeroSection() {
 
             <div className="mt-9 flex flex-col gap-4 sm:flex-row sm:items-center">
               <a
-                href="#sdk"
+                href="/onboarding"
                 className="inline-flex items-center justify-center rounded-full bg-[linear-gradient(135deg,#6965f4_0%,#5b7dff_100%)] px-8 py-3.5 text-[1rem] font-semibold text-white shadow-[0_12px_30px_rgba(99,91,255,0.26)] hover:shadow-[0_16px_40px_rgba(99,91,255,0.34)] transition-shadow"
               >
                 Get started
