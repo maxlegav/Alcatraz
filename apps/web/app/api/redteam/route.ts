@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, readdirSync } from 'fs';
 import { join, extname } from 'path';
 
+export const dynamic = 'force-dynamic';
+
 const FF_SCAN_PROJECT = process.env.FF_SCAN_PROJECT === 'true';
 
 const SYSTEM =
@@ -185,6 +187,17 @@ export async function POST(req: NextRequest) {
       '\n\n' +
       INSTRUCTIONS;
   }
+
+  // Rotate attack focus per run so repeated scans surface different findings
+  const ATTACK_ANGLES = [
+    'Focus especially on prompt injection and data exfiltration vectors.',
+    'Focus especially on privilege escalation and lateral movement between agents.',
+    'Focus especially on credential theft, environment variable leakage, and supply chain risks.',
+    'Focus especially on excessive agency, rate-limit bypass, and irreversible bulk actions.',
+    'Focus especially on insecure inter-agent trust and missing input validation.',
+  ];
+  const angle = ATTACK_ANGLES[Math.floor(Math.random() * ATTACK_ANGLES.length)];
+  userContent += `\n\n${angle}`;
 
   const client = new Anthropic({ apiKey });
   let text = '';

@@ -54,11 +54,21 @@ export function StepScan({
   const runScan = async () => {
     setStatus('scanning');
     setPhaseIdx(0);
+
+    // Keep cycling through last phase so the spinner never appears frozen
     phaseTimer.current = setInterval(() => {
       setPhaseIdx(p => (p < SCAN_PHASES.length - 1 ? p + 1 : p));
     }, 1800);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
+
     try {
-      const res  = await fetch('/api/redteam', { method: 'POST' });
+      const res  = await fetch('/api/redteam', {
+        method: 'POST',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
       const data = await res.json() as ScanResult & { error?: string };
       if (!res.ok || data.error) throw new Error(data.error ?? 'Scan failed');
       setResult(data);
@@ -66,9 +76,13 @@ export function StepScan({
       setPhaseIdx(SCAN_PHASES.length - 1);
       setStatus('done');
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Unknown error');
+      const msg = err instanceof Error
+        ? (err.name === 'AbortError' ? 'Scan timed out — please retry' : err.message)
+        : 'Unknown error';
+      setErrorMsg(msg);
       setStatus('error');
     } finally {
+      clearTimeout(timeout);
       if (phaseTimer.current) clearInterval(phaseTimer.current);
     }
   };
