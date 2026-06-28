@@ -47,7 +47,13 @@ export async function GET(req: NextRequest) {
  * PATCH /api/guardrails
  *
  * Merges a single tool name into deny_patterns for an agent.
- * Dashboard admin route — no Bearer auth required.
+ *
+ * Security note: this endpoint is intentionally unauthenticated, consistent
+ * with the other dashboard-admin GET routes (guardrails, agents, requests).
+ * The entire dashboard has no session auth. The mutation is conservative
+ * (adds to DENY, never removes rules), and agent_id is a non-enumerable UUID.
+ * Before moving to production, replace with a server action or require a
+ * session cookie so only the authenticated dashboard owner can mutate.
  *
  * Body:
  *   agent_id   string  required
