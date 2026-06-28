@@ -508,6 +508,24 @@ function EditableChips({
   );
 }
 
+type SeverityLevel = 'critical' | 'high' | 'medium' | 'low';
+
+const HITL_SEVERITY_KEY = 'alc_hitl_thresholds';
+const HITL_SEVERITY_DEFAULT: Record<SeverityLevel, boolean> = {
+  critical: true,
+  high: true,
+  medium: true,
+  low: false,
+};
+
+function loadHitlThresholds(): Record<SeverityLevel, boolean> {
+  try {
+    const raw = sessionStorage.getItem(HITL_SEVERITY_KEY);
+    if (raw) return { ...HITL_SEVERITY_DEFAULT, ...JSON.parse(raw) };
+  } catch { /* ignore */ }
+  return { ...HITL_SEVERITY_DEFAULT };
+}
+
 function GuardrailsPanel({ agentId, insight, ffInsights }: { agentId: string | null; insight?: InsightSummary | null; ffInsights?: boolean }) {
   const [tab, setTab]           = useState<PanelTab>('Guardrails');
   const [guardrail, setGuardrail] = useState<Guardrail | null>(null);
@@ -520,6 +538,16 @@ function GuardrailsPanel({ agentId, insight, ffInsights }: { agentId: string | n
   const [adding, setAdding]     = useState(false);
   const [added, setAdded]       = useState(false);
   const [addErr, setAddErr]     = useState('');
+  const [hitlThresholds, setHitlThresholds] = useState<Record<SeverityLevel, boolean>>(loadHitlThresholds);
+
+  const toggleHitlSeverity = (level: SeverityLevel) => {
+    if (level === 'critical') return; // critical is always on
+    setHitlThresholds(prev => {
+      const next = { ...prev, [level]: !prev[level] };
+      try { sessionStorage.setItem(HITL_SEVERITY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const tabs: PanelTab[] = ['Guardrails', 'HITL', ...(ffInsights ? ['Insights' as PanelTab] : [])];
   const top = insight?.top_pattern ?? null;
@@ -636,36 +664,75 @@ function GuardrailsPanel({ agentId, insight, ffInsights }: { agentId: string | n
         ) : tab === 'HITL' ? (
           /* HITL tab */
           <div className="space-y-4">
-            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-bold text-amber-800">Human-in-the-Loop</p>
-                  <p className="text-[11px] text-amber-600 mt-0.5">Always enabled for this demo</p>
-                </div>
-                <div className="relative inline-flex h-5 w-9 rounded-full bg-amber-500 cursor-not-allowed opacity-80">
-                  <span className="inline-block h-4 w-4 m-0.5 translate-x-4 rounded-full bg-white shadow" />
-                </div>
+            {/* Severity threshold */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Trigger threshold</p>
+                <p className="text-[9px] text-slate-400">By severity</p>
               </div>
+              <div className="rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+                {([
+                  { level: 'critical' as SeverityLevel, label: 'Critical', color: 'text-red-600',    bg: 'bg-red-50',    dot: 'bg-red-500',    locked: true  },
+                  { level: 'high'     as SeverityLevel, label: 'High',     color: 'text-orange-600', bg: 'bg-orange-50', dot: 'bg-orange-500', locked: false },
+                  { level: 'medium'   as SeverityLevel, label: 'Medium',   color: 'text-amber-600',  bg: 'bg-amber-50',  dot: 'bg-amber-500',  locked: false },
+                  { level: 'low'      as SeverityLevel, label: 'Low',      color: 'text-slate-500',  bg: 'bg-slate-50',  dot: 'bg-slate-400',  locked: false },
+                ] as const).map(({ level, label, color, bg, dot, locked }) => {
+                  const on = hitlThresholds[level];
+                  return (
+                    <div key={level} className={cn('flex items-center gap-3 px-3 py-2.5', on ? bg : 'bg-white')}>
+                      <span className={cn('h-2 w-2 rounded-full shrink-0', on ? dot : 'bg-slate-200')} />
+                      <div className="flex-1 min-w-0">
+                        <span className={cn('text-xs font-semibold', on ? color : 'text-slate-400')}>{label}</span>
+                        {locked && <span className="ml-1.5 text-[9px] text-slate-400 font-medium">always</span>}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn('text-[10px] font-semibold', on ? color : 'text-slate-300')}>
+                          {on ? 'HITL' : 'skip'}
+                        </span>
+                        <button
+                          onClick={() => toggleHitlSeverity(level)}
+                          disabled={locked}
+                          className={cn(
+                            'relative inline-flex h-5 w-9 rounded-full transition-colors',
+                            on ? 'bg-amber-500' : 'bg-slate-200',
+                            locked ? 'cursor-not-allowed opacity-70' : 'cursor-pointer',
+                          )}
+                        >
+                          <span className={cn('absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform', on ? 'translate-x-4' : 'translate-x-0.5')} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[9px] text-slate-400 mt-1.5 leading-relaxed">
+                REVIEW tools trigger HITL only if their severity meets this threshold. Lower-severity calls are auto-approved.
+              </p>
             </div>
 
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">REVIEW tools trigger HITL</p>
-              {review.map(tool => (
-                <div key={tool} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                  <span className="font-mono text-xs text-slate-700 flex-1">{tool}</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 bg-amber-100 rounded px-1.5 py-0.5">REVIEW</span>
-                </div>
-              ))}
-            </div>
+            {/* Review tools list */}
+            {review.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">REVIEW tools</p>
+                {review.map(tool => (
+                  <div key={tool} className="flex items-center gap-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span className="font-mono text-xs text-slate-700 flex-1">{tool}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 bg-amber-100 rounded px-1.5 py-0.5">REVIEW</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
+            {/* Capabilities */}
             <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5 space-y-1.5">
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Capabilities</p>
               {[
-                { label: 'Approve / Deny actions', on: true },
-                { label: 'See full tool input',    on: true },
-                { label: 'Risk level + CVSS',      on: true },
-                { label: 'Authentication required',on: false },
+                { label: 'Approve / Deny actions',  on: true  },
+                { label: 'See full tool input',      on: true  },
+                { label: 'Risk level + CVSS',        on: true  },
+                { label: 'Severity-based threshold', on: true  },
+                { label: 'Authentication required',  on: false },
               ].map(({ label, on }) => (
                 <div key={label} className="flex items-center gap-2">
                   <span className={cn('text-[9px] font-bold', on ? 'text-emerald-600' : 'text-slate-400')}>{on ? '✓' : '–'}</span>
