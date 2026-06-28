@@ -10,6 +10,8 @@ import type { AgentStat, FeedEntry } from './types';
 import type { Guardrail } from '@/lib/supabase/types';
 import { loadDashboardData, upsertRealtimeAgentStats } from './dashboard-data';
 import AnalyzeButton from '../agents/[id]/AnalyzeButton';
+import AttackPathModal from './AttackPathModal';
+import CompareFeeds from './CompareFeeds';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type HitlRequest = {
@@ -69,10 +71,10 @@ function assessRisk(toolName: string, toolInput: string): RiskInfo {
 }
 
 const RISK_STYLE: Record<RiskLevel, { badge: string; bg: string; border: string; text: string }> = {
-  critical: { badge: 'bg-red-600 text-white',          bg: 'bg-red-950/60',   border: 'border-red-800',   text: 'text-red-400'    },
-  high:     { badge: 'bg-orange-500 text-white',        bg: 'bg-orange-950/60',border: 'border-orange-800',text: 'text-orange-400' },
-  medium:   { badge: 'bg-amber-500 text-white',         bg: 'bg-amber-950/60', border: 'border-amber-800', text: 'text-amber-400'  },
-  low:      { badge: 'bg-slate-600 text-slate-200',     bg: 'bg-slate-900',    border: 'border-slate-700', text: 'text-slate-400'  },
+  critical: { badge: 'bg-red-600 text-white',          bg: 'bg-red-50',     border: 'border-red-200',    text: 'text-red-600'    },
+  high:     { badge: 'bg-orange-500 text-white',        bg: 'bg-orange-50',  border: 'border-orange-200', text: 'text-orange-600' },
+  medium:   { badge: 'bg-amber-500 text-white',         bg: 'bg-amber-50',   border: 'border-amber-200',  text: 'text-amber-600'  },
+  low:      { badge: 'bg-slate-500 text-white',         bg: 'bg-slate-50',   border: 'border-slate-200',  text: 'text-slate-500'  },
 };
 
 function cvssRange(severity: string | null): string {
@@ -746,6 +748,14 @@ export default function DashboardClient() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedEntry, setSelectedEntry]   = useState<DisplayEntry | null>(null);
   const [reportToast, setReportToast]       = useState<{ href: string } | null>(null);
+  // Feature flags (persisted in localStorage)
+  const [ffCompare,    setFfCompare]    = useState(() => typeof window !== 'undefined' && localStorage.getItem('ff_compare')     === 'true');
+  const [ffAttackPath, setFfAttackPath] = useState(() => typeof window !== 'undefined' && localStorage.getItem('ff_attack_path') === 'true');
+  const [ffPanelOpen,  setFfPanelOpen]  = useState(false);
+  const [attackPathOpen, setAttackPathOpen] = useState(false);
+  const toggleFf = (key: string, setter: React.Dispatch<React.SetStateAction<boolean>>) => (v: boolean) => {
+    localStorage.setItem(key, String(v)); setter(v);
+  };
   const prevRunning  = useRef(false);
   // Epoch = timestamp of first Run click; only events after this are shown
   const sessionEpoch = useRef<string | null>(sessionStorage.getItem('alc_epoch'));
@@ -1001,6 +1011,47 @@ export default function DashboardClient() {
             <span className="text-xs font-medium text-emerald-600">Live</span>
           </div>
           <div className="w-px h-5 bg-slate-200" />
+          {/* Labs FF toggle */}
+          <div className="relative">
+            <button
+              onClick={() => setFfPanelOpen(o => !o)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors',
+                (ffCompare || ffAttackPath)
+                  ? 'border-violet-300 bg-violet-50 text-violet-700'
+                  : 'border-slate-200 hover:border-slate-300 text-slate-500 hover:text-slate-700',
+              )}
+            >
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" />
+              </svg>
+              Labs
+              {(ffCompare || ffAttackPath) && <span className="h-1.5 w-1.5 rounded-full bg-violet-500 shrink-0" />}
+            </button>
+            {ffPanelOpen && (
+              <div className="absolute top-full right-0 mt-1.5 z-30 w-68 rounded-xl border border-slate-200 bg-white shadow-xl p-3 space-y-1.5">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1 mb-2">Experimental</p>
+                {([
+                  { key: 'ff_compare',     label: 'Side-by-side comparison',    desc: 'Unprotected vs protected feeds',  val: ffCompare,    set: toggleFf('ff_compare',     setFfCompare) },
+                  { key: 'ff_attack_path', label: 'Run workflow visualization',  desc: 'View run as a flow diagram',      val: ffAttackPath, set: toggleFf('ff_attack_path', setFfAttackPath) },
+                ] as const).map(({ label, desc, val, set }) => (
+                  <button key={label} onClick={() => set(!val)}
+                    className={cn('w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-colors',
+                      val ? 'border-violet-200 bg-violet-50' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                    )}
+                  >
+                    <div className={cn('mt-0.5 relative h-4 w-7 rounded-full transition-colors shrink-0', val ? 'bg-violet-500' : 'bg-slate-200')}>
+                      <span className={cn('absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform', val ? 'translate-x-3.5' : 'translate-x-0.5')} />
+                    </div>
+                    <div>
+                      <p className={cn('text-xs font-semibold', val ? 'text-violet-700' : 'text-slate-600')}>{label}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <Link href="/" className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors">
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
             Onboarding
@@ -1044,6 +1095,19 @@ export default function DashboardClient() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2.5">
+                  {ffAttackPath && displayFeed.length > 0 && (
+                    <button
+                      onClick={() => setAttackPathOpen(true)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 border border-violet-200 text-violet-700 text-[11px] font-semibold hover:bg-violet-100 transition-colors"
+                    >
+                      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="5" cy="12" r="2" /><circle cx="12" cy="5" r="2" /><circle cx="19" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+                        <line x1="7" y1="12" x2="10" y2="12" /><line x1="14" y1="12" x2="17" y2="12" />
+                        <line x1="12" y1="7" x2="12" y2="10" /><line x1="12" y1="14" x2="12" y2="17" />
+                      </svg>
+                      Run Workflow
+                    </button>
+                  )}
                   <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-violet-500" /></span>
                   <span className="text-xs font-medium text-violet-600">Realtime</span>
                 </div>
@@ -1051,12 +1115,20 @@ export default function DashboardClient() {
 
               {sessions.length > 0 && <SessionTabs sessions={sessions} activeId={activeSessionId} onSelect={setActiveSessionId} />}
 
-              <div className="shrink-0 grid grid-cols-[8px_1fr_80px_90px_56px] gap-0 items-center px-5 py-2 bg-slate-50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                <span /><span className="px-3">Tool · Payload</span><span>Agent</span><span>Status</span><span className="text-right">Time</span>
-              </div>
+              {!ffCompare && (
+                <div className="shrink-0 grid grid-cols-[8px_1fr_80px_90px_56px] gap-0 items-center px-5 py-2 bg-slate-50 border-b border-slate-100 text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                  <span /><span className="px-3">Tool · Payload</span><span>Agent</span><span>Status</span><span className="text-right">Time</span>
+                </div>
+              )}
 
-              <div className="flex-1 overflow-y-auto min-h-0">
-                {isLoading ? (
+              <div className={cn('flex-1 min-h-0', ffCompare ? 'overflow-hidden' : 'overflow-y-auto')}>
+                {ffCompare ? (
+                  <CompareFeeds
+                    feed={displayFeed}
+                    isLoading={isLoading}
+                    sessionHasStarted={!!sessionEpoch.current}
+                  />
+                ) : isLoading ? (
                   <div className="flex flex-col items-center justify-center h-full text-center py-16"><div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mb-4"><Icon.Activity /></div><p className="text-sm font-medium text-slate-600">Loading feed</p></div>
                 ) : error ? (
                   <div className="flex flex-col items-center justify-center h-full text-center py-16 px-6"><div className="w-12 h-12 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mb-4"><Icon.Shield /></div><p className="text-sm font-medium text-slate-700">Dashboard load failed</p><p className="text-xs text-slate-400 mt-1">{error}</p></div>
@@ -1111,6 +1183,12 @@ export default function DashboardClient() {
 
       <AnimatePresence>
         {reportToast && <ReportReadyToast href={reportToast.href} onClose={() => setReportToast(null)} />}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {ffAttackPath && attackPathOpen && (
+          <AttackPathModal entries={displayFeed} onClose={() => setAttackPathOpen(false)} />
+        )}
       </AnimatePresence>
     </div>
   );
