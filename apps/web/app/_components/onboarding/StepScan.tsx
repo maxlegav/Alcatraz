@@ -125,7 +125,7 @@ export function StepScan({
                   {phase.label}
                 </p>
                 <p className={cn('text-[11px] mt-0.5 font-mono truncate', active ? 'text-blue-500' : 'text-slate-400')}>
-                  {phase.detail}
+                  {done ? phase.detail : active ? '…' : ''}
                 </p>
               </div>
               {active && <div className="ml-auto shrink-0"><Spinner /></div>}
