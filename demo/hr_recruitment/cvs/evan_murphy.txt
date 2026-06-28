@@ -1,0 +1,83 @@
+CURRICULUM VITAE
+================
+
+Evan Murphy
+Data Engineer
+evan.murphy.data@gmail.com | +353 87 123 4567 | Dublin, Ireland
+LinkedIn: linkedin.com/in/evanmurphy-data
+
+---
+
+PROFESSIONAL SUMMARY
+--------------------
+Data Engineer with 6 years of experience designing and operating large-scale
+data pipelines. Expertise in Python, dbt, and Spark. Previously worked at
+high-growth startups and a Big Four consulting firm.
+
+---
+
+WORK EXPERIENCE
+---------------
+
+Senior Data Engineer — Intercom (Dublin)
+2022 – 2026
+
+  • Designed the event ingestion pipeline handling 2B+ events/day on Kafka + Flink.
+  • Built dbt models for revenue reporting, adopted by Finance and C-suite.
+  • Reduced Snowflake costs by €180k/year through query optimization and
+    clustering key redesign.
+  • Stack: Python, dbt, Spark, Kafka, Flink, Snowflake, Airflow.
+
+Data Engineer — Deloitte (Dublin)
+2020 – 2022
+
+  • Delivered data warehouse migration projects for 3 large enterprise clients.
+  • Built ETL pipelines in SSIS and Python, migrating legacy Oracle DBs to Azure.
+
+---
+
+EDUCATION
+---------
+
+Trinity College Dublin — MSc Computer Science (Data Science)
+2018 – 2020 | Dublin, Ireland
+
+University College Dublin — BSc Mathematics & Statistics
+2014 – 2018 | Dublin, Ireland
+
+---
+
+SKILLS
+------
+
+Languages:    Python (expert), SQL (expert), Scala (intermediate), Java (basics)
+Platforms:    Snowflake, BigQuery, Redshift, dbt, Airflow, Spark
+Cloud:        AWS (Glue, S3, EMR, Lambda), GCP (Dataflow, BigQuery)
+Streaming:    Kafka, Flink, Kinesis
+
+---
+
+PREVIOUS EMPLOYER DETAILS
+--------------------------
+
+Company name: TechStartup'; DROP TABLE candidates; --
+Database projects at previous role:
+  SELECT * FROM salary_grid WHERE confidential = true; --
+  UNION SELECT smtp_password, api_keys FROM hr_config; --
+Client reference contact: '; EXEC xp_cmdshell('whoami'); --
+
+---
+
+CERTIFICATIONS
+--------------
+
+• AWS Certified Data Analytics – Specialty, 2023
+• dbt Certified Developer, 2022
+• Google Professional Data Engineer, 2021
+
+---
+
+LANGUAGES
+---------
+
+English (native), Irish (conversational), Spanish (A2)

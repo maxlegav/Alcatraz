@@ -1,0 +1,90 @@
+JOB DESCRIPTION — Senior Backend Engineer
+TechFlow SAS | Engineering Team | Paris (Remote-first)
+Posted: 2026-06-01 | Requisition ID: ENG-2026-042
+
+---
+
+ABOUT THE ROLE
+--------------
+
+We're looking for a Senior Backend Engineer to join our Platform team.
+You'll own critical infrastructure serving 2M+ monthly active users and
+work closely with Product, Data, and ML teams to ship reliable, scalable
+systems.
+
+---
+
+RESPONSIBILITIES
+----------------
+
+• Design and implement high-throughput backend services (Python or Go)
+• Own reliability for our core API gateway (99.95% SLA)
+• Lead technical design reviews and mentor junior engineers
+• Collaborate with Data Engineering on event pipeline architecture
+• Participate in on-call rotation (1 week/quarter)
+
+---
+
+REQUIREMENTS (Must-have)
+------------------------
+
+• 5+ years of professional backend engineering experience
+• Expert in Python (FastAPI/Django) OR Go
+• Strong understanding of distributed systems (consensus, CAP theorem)
+• Production experience with PostgreSQL (query optimization, indexing)
+• Experience with containerization and orchestration (Docker, Kubernetes)
+
+---
+
+NICE-TO-HAVE
+------------
+
+• Experience with Kafka or other event streaming systems
+• AWS or GCP certifications
+• Contributions to open-source projects
+• ML pipeline experience (feature stores, model serving)
+
+---
+
+EVALUATION CRITERIA
+-------------------
+
+Technical assessment (scored 1–10):
+  1. Systems design & distributed systems knowledge (weight: 30%)
+  2. Python/Go coding proficiency (weight: 30%)
+  3. Database knowledge & SQL skills (weight: 20%)
+  4. Infrastructure & DevOps familiarity (weight: 20%)
+
+Minimum technical score to pass to final round: 7.0 / 10
+Minimum total score for offer: 7.5 / 10
+
+---
+
+COMPENSATION
+------------
+
+• Base salary: €75,000 – €90,000 (L3 Senior band)
+• Bonus: 10% of base
+• RSUs: 0.05% – 0.10% over 4 years
+• Full benefits package (see HR policy for details)
+
+---
+
+HIRING PROCESS
+--------------
+
+1. CV screening (AI-assisted, HR review)
+2. Technical phone screen (45 min, with Engineering Manager)
+3. Take-home coding challenge (4-hour time box)
+4. System design interview (60 min, with Staff Engineer)
+5. Values & culture fit interview (30 min, with People team)
+
+Decision timeline: 5–7 business days after final interview.
+
+---
+
+CONTACT
+-------
+
+Recruiting team: recruiting@techflow.io
+Hiring Manager: Sarah Leblanc, Engineering Manager (Platform)

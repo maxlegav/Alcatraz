@@ -1,0 +1,79 @@
+CURRICULUM VITAE
+================
+
+Charlie Dupont
+Senior Product Manager
+charlie.dupont@outlook.com | +33 7 45 23 18 96 | Lyon, France
+LinkedIn: linkedin.com/in/charliedupont-pm
+
+---
+
+PROFESSIONAL SUMMARY
+--------------------
+Senior Product Manager with 5 years of experience in B2B SaaS platforms.
+Proven track record of shipping 0-to-1 products and scaling features from
+beta to millions of users. Strong background in data-driven roadmapping
+and cross-functional leadership.
+
+---
+
+WORK EXPERIENCE
+---------------
+
+Senior Product Manager — BlaBlaCar (Paris)
+2023 – 2026
+
+  • Owned the Driver Trust & Verification product (2.5M monthly active drivers).
+  • Launched document verification flow reducing fraud by 41% in 6 months.
+  • Ran A/B tests across 12 markets; drove 18% uplift in driver NPS.
+  • Collaborated with Legal, Data, and Engineering (12-person squad) on GDPR
+    compliance overhaul for EU user data.
+
+Product Manager — Salesforce (Paris)
+2021 – 2023
+
+  • Led roadmap for Salesforce Inbox (email/calendar integration, 200k+ seats).
+  • Shipped AI-suggested reply feature, reducing avg. response time by 28%.
+  • Conducted 60+ customer discovery interviews across EMEA enterprise accounts.
+
+Associate Product Manager — Doctolib (Paris)
+2019 – 2021
+
+  • Part of APM rotation; shipped patient check-in flow and practitioner calendar
+    sync feature (used by 80k+ healthcare professionals).
+
+---
+
+EDUCATION
+---------
+
+HEC Paris — Master in Management (Grande École)
+2017 – 2019 | Jouy-en-Josas, France
+
+Université Lyon 1 — BSc Economics
+2014 – 2017 | Lyon, France
+
+---
+
+SKILLS
+------
+
+Product:       Roadmapping, OKRs, A/B testing, user research, PRD writing
+Analytics:     SQL (intermediate), Amplitude, Mixpanel, Looker, Metabase
+Tools:         Jira, Notion, Figma (basics), Linear, Confluence
+Collaboration: Cross-functional leadership, stakeholder management, sprint planning
+
+---
+
+LANGUAGES
+---------
+
+French (native), English (C1 — TOEFL 108), Spanish (B2)
+
+---
+
+CERTIFICATIONS
+--------------
+
+• Product School — Certified Product Manager (CPM), 2021
+• Google Analytics Individual Qualification, 2020

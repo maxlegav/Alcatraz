@@ -780,9 +780,7 @@ function AgentSelector({ agents, selectedId, onSelect }: { agents: AgentStat[]; 
   );
 }
 
-// ── Auto-scheduler demo types ─────────────────────────────────────────────────
-const DEMO_TYPES = ['research', 'hr', 'devops', 'finance', 'support'] as const;
-type DemoType = typeof DEMO_TYPES[number];
+type DemoType = 'research' | 'hr';
 
 // ── Dashboard client ──────────────────────────────────────────────────────────
 export default function DashboardClient() {
@@ -1024,7 +1022,7 @@ export default function DashboardClient() {
     return () => clearInterval(poll);
   }, []);
 
-  const startAgent = useCallback(async (demo: DemoType | 'long'): Promise<void> => {
+  const startAgent = useCallback(async (demo: DemoType): Promise<void> => {
     // Create session tab immediately so the UI responds without waiting for the API round-trip
     const startedAt  = new Date().toISOString();
     const sessionId  = crypto.randomUUID();
@@ -1056,53 +1054,13 @@ export default function DashboardClient() {
     void pollFeed();
   }, [pollFeed]);
 
-  // Auto-scheduler: fires 1 long agent on mount, then one random agent every 20–45 s.
-  // Fallback watchdog triggers if nothing has run for >60 s.
-  const lastRunAt = useRef<number>(0);
-  const schedulerActive = useRef(false);
+  const handleRunResearch = useCallback((): Promise<string | null> =>
+    startAgent('research').then(() => null).catch((e: unknown) => String(e)),
+  [startAgent]);
 
-  useEffect(() => {
-    if (schedulerActive.current) return;
-    schedulerActive.current = true;
-
-    const pickDemo = (): DemoType => DEMO_TYPES[Math.floor(Math.random() * DEMO_TYPES.length)];
-    const randomDelay = () => 20_000 + Math.random() * 25_000; // 20–45 s
-
-    // Fire 1 long agent on mount
-    const fireInitial = async () => {
-      await startAgent('long');
-      lastRunAt.current = Date.now();
-    };
-
-    // After each interval, fire one agent
-    const scheduleNext = () => {
-      const delay = randomDelay();
-      return setTimeout(async () => {
-        await startAgent(pickDemo());
-        lastRunAt.current = Date.now();
-        nextTimer = scheduleNext();
-      }, delay);
-    };
-
-    // Watchdog: if nothing has run in 60 s, force one
-    const watchdog = setInterval(() => {
-      if (Date.now() - lastRunAt.current > 60_000) {
-        void startAgent(pickDemo());
-        lastRunAt.current = Date.now();
-      }
-    }, 10_000);
-
-    let nextTimer: ReturnType<typeof setTimeout>;
-
-    void fireInitial().then(() => {
-      nextTimer = scheduleNext();
-    });
-
-    return () => {
-      clearInterval(watchdog);
-      clearTimeout(nextTimer);
-    };
-  }, [startAgent]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleRunHR = useCallback((): Promise<string | null> =>
+    startAgent('hr').then(() => null).catch((e: unknown) => String(e)),
+  [startAgent]);
 
   const selectedAgent   = agentStats.find(a => a.id === selectedAgentId) ?? null;
   const sessionAgentName = runStatus.agent_id ? (agentNameMap[runStatus.agent_id] ?? null) : null;
@@ -1172,6 +1130,13 @@ export default function DashboardClient() {
               </div>
             )}
           </div>
+          <RunButton isRunning={runStatus.running} onRun={handleRunResearch} label="Run Research Agent" />
+          <RunButton
+            isRunning={runStatus.running}
+            onRun={handleRunHR}
+            label="Run HR Pipeline"
+            idleClass="bg-[linear-gradient(135deg,#7c3aed_0%,#a855f7_100%)] text-white shadow-[0_4px_14px_rgba(124,58,237,0.26)] hover:shadow-[0_8px_24px_rgba(124,58,237,0.34)]"
+          />
           <Link href="/onboarding" className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors">
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
             Onboarding

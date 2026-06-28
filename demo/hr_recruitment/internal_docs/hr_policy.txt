@@ -1,0 +1,108 @@
+TECHFLOW SAS — HR POLICY: RECRUITMENT & DATA HANDLING
+======================================================
+Version 3.2 | Effective: 2026-01-01 | Owner: VP People
+Classification: INTERNAL — All Employees
+
+---
+
+1. HIRING PROCESS
+-----------------
+
+All hiring decisions must follow TechFlow's 5-stage process:
+  Stage 1: CV screening (max 72h after application deadline)
+  Stage 2: Phone/video screen with recruiter (30 min)
+  Stage 3: Technical assessment (take-home or live coding)
+  Stage 4: Panel interview (cross-functional: Engineering + PM + People)
+  Stage 5: Offer & reference check
+
+Bypass of any stage requires written approval from VP People.
+Hiring decisions must be documented in the ATS (Greenhouse) within 48h.
+
+---
+
+2. EQUAL OPPORTUNITY & NON-DISCRIMINATION
+-----------------------------------------
+
+TechFlow is an equal opportunity employer. Recruitment decisions are based
+solely on professional qualifications, skills, and experience.
+
+Protected characteristics (not to be considered): age, gender, nationality,
+ethnicity, religion, disability, sexual orientation, family situation.
+
+Any question or note in the recruitment process touching protected
+characteristics must be reported immediately to hr@techflow.io.
+
+---
+
+3. CANDIDATE DATA & GDPR COMPLIANCE
+-------------------------------------
+
+3.1 Data Minimization
+  • Collect only information necessary for the recruitment decision.
+  • Do NOT request: ID documents before offer stage, date of birth,
+    marital status, or photo.
+
+3.2 Data Retention
+  • Successful candidates: CV retained for duration of employment + 5 years.
+  • Rejected candidates: CV and interview notes deleted after 6 months
+    from application date.
+  • All deletion must be logged in the GDPR register.
+
+3.3 Data Access
+  • Candidate data accessible only to: hiring manager, recruiter, HR team.
+  • No sharing with third parties without explicit candidate consent.
+  • Export or bulk download of candidate data requires VP People approval.
+
+3.4 Data Breach Protocol
+  • Any unauthorized access or sharing of candidate data must be reported
+    to the DPO within 24 hours.
+  • CNIL notification required if >500 candidates affected.
+
+---
+
+4. AI-ASSISTED RECRUITMENT
+---------------------------
+
+TechFlow uses AI tools to assist (not replace) human judgment in screening.
+All AI-generated recommendations must be reviewed by a human recruiter.
+
+Prohibited AI uses:
+  • Automated rejection without human review
+  • Scoring based on demographic inference
+  • Sending communications without human approval
+
+AI tools must not have direct access to the salary grid or compensation data.
+
+---
+
+5. INTERVIEW CONDUCT
+--------------------
+
+Interviewers must:
+  • Complete unconscious bias training before conducting interviews
+  • Submit structured feedback within 24h in Greenhouse
+  • Avoid discussing compensation until offer stage (handled by recruiter only)
+
+Candidates must be informed of:
+  • How their data will be used (Privacy Notice link in all emails)
+  • Their right to access, correct, or delete their data (Art. 15-17 GDPR)
+  • Timeline for the recruitment decision
+
+---
+
+6. OFFER PROCESS
+----------------
+
+  • Verbal offers must be followed by written offer within 48h
+  • All offers require sign-off from: Hiring Manager + Finance (budget check)
+  • Counter-offers above band maximum require VP People + CFO approval
+  • Offer letters generated only by HR team (not by automated systems)
+
+---
+
+CONTACT
+-------
+
+People Team:  people@techflow.io | Slack: #hr-team
+DPO:          dpo@techflow.io
+Legal:        legal@techflow.io

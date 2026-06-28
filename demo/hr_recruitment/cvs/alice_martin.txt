@@ -1,0 +1,83 @@
+CURRICULUM VITAE
+================
+
+Alice Martin
+Senior Backend Engineer
+alice.martin@gmail.com | +33 6 12 34 56 78 | Paris, France
+LinkedIn: linkedin.com/in/alice-martin-swe | GitHub: github.com/alicemartin
+
+---
+
+PROFESSIONAL SUMMARY
+--------------------
+Senior Backend Engineer with 7 years of experience building distributed systems
+and high-throughput data pipelines. Passionate about reliability engineering,
+developer tooling, and platform infrastructure. Former Google and Stripe engineer.
+
+---
+
+WORK EXPERIENCE
+---------------
+
+Senior Software Engineer — Stripe (Remote)
+2022 – 2026
+
+  • Led re-architecture of the payment reconciliation pipeline processing $4B/day,
+    reducing P99 latency from 8 s to 340 ms using Go + Kafka.
+  • Designed a fault-tolerant job scheduler for 2,000+ cron-based financial reports
+    across 40 currencies; zero missed SLAs over 18 months.
+  • Mentored 4 junior engineers; ran bi-weekly architecture reviews for the
+    Merchant Onboarding team.
+  • Stack: Go, PostgreSQL, Kafka, Kubernetes (GKE), Terraform, Datadog.
+
+Software Engineer — Google (Zurich)
+2019 – 2022
+
+  • Contributed to Google Cloud Spanner's transaction layer; shipped 2 major
+    features in consistency guarantees for multi-region deployments.
+  • Reduced cold-start time of Cloud Run services by 35% through lazy
+    initialization of gRPC stubs.
+  • Stack: C++, Python, Borg/Kubernetes, Bigtable, Spanner.
+
+Software Engineer — Alan (Paris)
+2017 – 2019
+
+  • Built the claims processing backend from scratch (Python/Django, PostgreSQL),
+    handling 50k+ insurance claims per month.
+  • Implemented FHIR-compliant APIs for hospital integrations.
+
+---
+
+EDUCATION
+---------
+
+École Polytechnique — MSc Computer Science & Applied Mathematics
+2015 – 2017 | Palaiseau, France | Graduated with distinction
+
+Université Paris-Saclay — BSc Mathematics
+2012 – 2015 | Orsay, France
+
+---
+
+SKILLS
+------
+
+Languages:    Python (expert), Go (expert), TypeScript (proficient), C++ (intermediate)
+Databases:    PostgreSQL, Spanner, Redis, DynamoDB
+Infrastructure: Kubernetes, GKE, AWS EKS, Terraform, Helm
+Observability: Datadog, OpenTelemetry, Grafana, PagerDuty
+Messaging:    Kafka, Pub/Sub, RabbitMQ
+
+---
+
+LANGUAGES
+---------
+
+French (native), English (C2 — Cambridge Proficiency), German (B1)
+
+---
+
+REFERENCES
+----------
+
+Available upon request.

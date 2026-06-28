@@ -34,21 +34,17 @@ _state: dict = {
 
 _state_lock = threading.Lock()
 
-_DEMO_ROOT = Path(__file__).parent.parent.parent.parent / "demo" / "langchain"
+_DEMO_ROOT     = Path(__file__).parent.parent.parent.parent / "demo"
+_LANGCHAIN_ROOT = _DEMO_ROOT / "langchain"
+_HR_ROOT        = _DEMO_ROOT / "hr_recruitment"
 
 _DEMO_SCRIPTS = {
-    "research": _DEMO_ROOT / "research_agent.py",
-    "hr":       _DEMO_ROOT / "agent_protected.py",
-    "devops":   _DEMO_ROOT / "devops_agent.py",
-    "finance":  _DEMO_ROOT / "finance_agent.py",
-    "support":  _DEMO_ROOT / "support_agent.py",
-    "long":     _DEMO_ROOT / "research_agent.py",
+    "research": _LANGCHAIN_ROOT / "research_agent.py",
+    "hr":       _HR_ROOT        / "orchestrator.py",
 }
 
 # Extra env vars injected per demo type
-_DEMO_EXTRA_ENV: dict[str, dict[str, str]] = {
-    "long": {"ALCATRAZ_LONG_RUN": "1"},
-}
+_DEMO_EXTRA_ENV: dict[str, dict[str, str]] = {}
 
 
 class _Handler(BaseHTTPRequestHandler):
