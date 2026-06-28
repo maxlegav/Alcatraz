@@ -812,6 +812,7 @@ export default function DashboardClient() {
     localStorage.setItem(key, String(v)); setter(v);
   };
   const prevRunning  = useRef(false);
+  const feedRef      = useRef<DisplayEntry[]>([]);
   // Epoch = timestamp of first Run click; only events after this are shown
   const sessionEpoch = useRef<string | null>(sessionStorage.getItem('alc_epoch'));
 
@@ -885,6 +886,9 @@ export default function DashboardClient() {
       })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, []);
+
+  // Keep feedRef in sync so the run-completion handler can read current feed
+  useEffect(() => { feedRef.current = feed; }, [feed]);
 
   // Keep sessionStorage in sync
   useEffect(() => {
@@ -1004,15 +1008,24 @@ export default function DashboardClient() {
         setRunStatus(runRes);
 
         if (prevRunning.current && !runRes.running) {
-          // Mark last session as ended + show toast
           setSessions(prev => {
-            const updated = prev.map((s, i) =>
-              i === prev.length - 1 && !s.endedAt ? { ...s, endedAt: new Date().toISOString() } : s
-            );
-            const last = updated.filter(s => s.endedAt).at(-1);
-            if (last) {
-              setReportToast({ href: `/report?from=${encodeURIComponent(last.startedAt)}&to=${encodeURIComponent(last.endedAt!)}` });
-            }
+            const lastIdx = prev.length - 1;
+            const last = prev[lastIdx];
+            if (!last || last.endedAt) return prev;
+
+            const startMs  = new Date(last.startedAt).getTime();
+            const endedAt  = new Date().toISOString();
+            const endMs    = new Date(endedAt).getTime();
+            const hasEvents = feedRef.current.some(e => {
+              const t = new Date(e.created_at).getTime();
+              return t >= startMs && t <= endMs;
+            });
+
+            // Discard runs that produced no tool calls — nothing to report
+            if (!hasEvents) return prev.filter((_, i) => i !== lastIdx);
+
+            const updated = prev.map((s, i) => i === lastIdx ? { ...s, endedAt } : s);
+            setReportToast({ href: `/report?from=${encodeURIComponent(last.startedAt)}&to=${encodeURIComponent(endedAt)}` });
             return updated;
           });
         }
@@ -1046,8 +1059,8 @@ export default function DashboardClient() {
     void pollFeed();
   }, [pollFeed]);
 
-  // Auto-scheduler: fires 2 agents on mount, then one at a time on random intervals.
-  // Fallback watchdog triggers if nothing has run for >60s.
+  // Auto-scheduler: fires 1 agent on mount, then one at a time every 45–75 s.
+  // Fallback watchdog triggers if nothing has run for >120 s.
   const lastRunAt = useRef<number>(0);
   const schedulerActive = useRef(false);
 
@@ -1056,13 +1069,10 @@ export default function DashboardClient() {
     schedulerActive.current = true;
 
     const pickDemo = (): DemoType => DEMO_TYPES[Math.floor(Math.random() * DEMO_TYPES.length)];
-    const randomDelay = () => 20_000 + Math.random() * 25_000; // 20–45s
+    const randomDelay = () => 45_000 + Math.random() * 30_000; // 45–75 s
 
-    // Fire 2 agents immediately with a 1–2s stagger
+    // Fire 1 agent on mount
     const fireInitial = async () => {
-      await startAgent(pickDemo());
-      lastRunAt.current = Date.now();
-      await new Promise(r => setTimeout(r, 1000 + Math.random() * 1000));
       await startAgent(pickDemo());
       lastRunAt.current = Date.now();
     };
@@ -1077,13 +1087,13 @@ export default function DashboardClient() {
       }, delay);
     };
 
-    // Watchdog: if nothing has run in 60s, force one
+    // Watchdog: if nothing has run in 120 s, force one
     const watchdog = setInterval(() => {
-      if (Date.now() - lastRunAt.current > 60_000) {
+      if (Date.now() - lastRunAt.current > 120_000) {
         void startAgent(pickDemo());
         lastRunAt.current = Date.now();
       }
-    }, 10_000);
+    }, 15_000);
 
     let nextTimer: ReturnType<typeof setTimeout>;
 
