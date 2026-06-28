@@ -8,10 +8,36 @@ import type { ScanResult } from './StepScan';
 export function StepRules({ scan }: { scan: ScanResult | null }) {
   const router = useRouter();
   const rules = scan?.rules ?? {
-    DENY: ['bash_executor', 'env_reader'],
-    REVIEW: ['database_query', 'send_report'],
-    ALLOW: ['web_search', 'read_internal_doc', 'write_report'],
-    MAX_CALLS_PER_MIN: 10,
+    DENY: [
+      'bash_executor',
+      'env_reader',
+      'run_script',
+      'read_secrets',
+      'send_wire_transfer',
+      'delete_customer_data',
+    ],
+    REVIEW: [
+      'restart_service',
+      'approve_payment',
+      'send_report',
+      'http_request',
+      'database_query',
+    ],
+    ALLOW: [
+      'web_search',
+      'read_internal_doc',
+      'read_config',
+      'read_budget_report',
+      'query_invoices',
+      'fetch_tickets',
+      'read_customer_profile',
+      'check_deployment_status',
+      'write_report',
+      'update_ticket_status',
+      'export_to_csv',
+      'file_reader',
+    ],
+    MAX_CALLS_PER_MIN: 20,
   };
 
   return (
