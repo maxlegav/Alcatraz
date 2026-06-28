@@ -33,6 +33,22 @@ type DisplayEntry = {
   hitlDecision?: HitlDecision;
 };
 
+function hitlDecisionFromPayload(payload: Record<string, unknown> | null): HitlDecision | undefined {
+  const value = payload?.hitl;
+  return value === 'approved' || value === 'denied' || value === 'pending' ? value : undefined;
+}
+
+function displayStatusForRequest(status: string, payload: Record<string, unknown> | null): DisplayStatus {
+  const hitlDecision = hitlDecisionFromPayload(payload);
+  if (hitlDecision === 'approved') return 'ALLOWED';
+  if (hitlDecision === 'pending') return 'REVIEW';
+  return status as DisplayStatus;
+}
+
+function isBlockedRequest(status: string, payload: Record<string, unknown> | null): boolean {
+  return displayStatusForRequest(status, payload) === 'BLOCKED';
+}
+
 // ── Risk assessment ────────────────────────────────────────────────────────────
 function assessRisk(toolName: string, toolInput: string): RiskInfo {
   const name  = toolName.toLowerCase();
@@ -758,28 +774,25 @@ export default function DashboardClient() {
     return feed.filter(e => { const t = new Date(e.created_at).getTime(); return t >= start && t <= end; });
   }, [feed, sessions, activeSessionId]);
 
-  // Helper: convert raw requests + hitl into DisplayEntry[]
+  // Helper: convert raw requests into DisplayEntry[]
+  // HITL state is already embedded in request payload (payload.hitl), so we only
+  // use reqEntries — separate hitlEntries caused duplicates with different id prefixes.
   const buildDisplayFeed = useCallback((
     requests: Array<{ id: string; agent_id: string; tool_name: string; status: string; severity: string | null; payload: Record<string,unknown>|null; created_at: string }>,
-    hitlAll:  HitlRequest[],
+    _hitlAll: HitlRequest[],
   ): DisplayEntry[] => {
-    const reqEntries: DisplayEntry[] = requests.map(r => ({
-      id: r.id, agent_id: r.agent_id, tool_name: r.tool_name,
-      displayStatus: r.status as DisplayStatus,
-      severity: r.severity, payload: r.payload, created_at: r.created_at,
-    }));
-    const hitlEntries: DisplayEntry[] = hitlAll.map(h => ({
-      id: `hitl-${h.id}`, agent_id: h.agent_id, tool_name: h.tool_name,
-      displayStatus: (h.status === 'pending' ? 'REVIEW' : h.status === 'approved' ? 'ALLOWED' : 'BLOCKED') as DisplayStatus,
-      severity: null, payload: { input: h.tool_input }, created_at: h.created_at,
-      isHitl: true, hitlDecision: h.status as HitlDecision,
-    }));
-    // Merge and sort newest first, deduplicated by id
-    const all = [...reqEntries, ...hitlEntries].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    const seen = new Set<string>();
-    return all.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+    return requests
+      .map(r => {
+        const hitlDecision = hitlDecisionFromPayload(r.payload);
+        return {
+          id: r.id, agent_id: r.agent_id, tool_name: r.tool_name,
+          displayStatus: displayStatusForRequest(r.status, r.payload),
+          severity: r.severity, payload: r.payload, created_at: r.created_at,
+          isHitl: Boolean(hitlDecision),
+          hitlDecision,
+        };
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, []);
 
   // Keep sessionStorage in sync
@@ -847,7 +860,7 @@ export default function DashboardClient() {
           const cur = statsMap.get(r.agent_id) ?? { total: 0, blocked: 0, lastActive: null };
           statsMap.set(r.agent_id, {
             total:      cur.total + 1,
-            blocked:    cur.blocked + (r.status === 'BLOCKED' ? 1 : 0),
+            blocked:    cur.blocked + (isBlockedRequest(r.status, r.payload) ? 1 : 0),
             lastActive: r.created_at,
           });
         }
