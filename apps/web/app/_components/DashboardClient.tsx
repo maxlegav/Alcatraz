@@ -466,58 +466,6 @@ function RunButton({ isRunning, onRun, label = 'Run Agent', idleClass = 'bg-[lin
   );
 }
 
-// ── Project Panel ─────────────────────────────────────────────────────────────
-function ProjectPanel({ running, agentName, agentId, startedAt, sessionEventCount, sessionBlockedCount }: {
-  running: boolean; agentName: string | null; agentId: string | null;
-  startedAt: string | null; sessionEventCount: number; sessionBlockedCount: number;
-}) {
-  const [elapsed, setElapsed] = useState('');
-  useEffect(() => {
-    if (!startedAt) { setElapsed(''); return; }
-    const update = () => {
-      const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
-      setElapsed(secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`);
-    };
-    update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
-  }, [startedAt]);
-
-  return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-      className={cn('rounded-2xl border shadow-sm p-4 transition-colors duration-500', running ? 'bg-violet-950 border-violet-700' : 'bg-white border-slate-200')}>
-      <div className="flex items-center justify-between mb-2">
-        <span className={cn('text-[10px] font-bold uppercase tracking-wider', running ? 'text-violet-300' : 'text-slate-400')}>Active Session</span>
-        <div className="flex items-center gap-1.5">
-          {running ? (
-            <><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-violet-400" /></span><span className="text-[10px] font-semibold text-violet-300">RUNNING</span></>
-          ) : (
-            <><span className="h-2 w-2 rounded-full bg-slate-300" /><span className="text-[10px] font-semibold text-slate-400">IDLE</span></>
-          )}
-        </div>
-      </div>
-      {agentName ? (
-        <p className={cn('text-sm font-semibold truncate mb-3', running ? 'text-white' : 'text-slate-800')}>{agentName}</p>
-      ) : (
-        <p className={cn('text-sm truncate mb-3 italic', running ? 'text-violet-300' : 'text-slate-400')}>No agent selected</p>
-      )}
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        {[
-          { label: 'Elapsed', value: running && elapsed ? elapsed : '—' },
-          { label: 'Events',  value: sessionEventCount > 0 ? String(sessionEventCount) : '—' },
-          { label: 'Blocked', value: sessionEventCount > 0 ? String(sessionBlockedCount) : '—' },
-        ].map(({ label, value }) => (
-          <div key={label} className={cn('rounded-xl p-2 text-center', running ? 'bg-violet-900/60' : 'bg-slate-50')}>
-            <p className={cn('text-[9px] font-medium mb-0.5', running ? 'text-violet-400' : 'text-slate-400')}>{label}</p>
-            <p className={cn('text-xs font-bold tabular-nums', running ? 'text-white' : 'text-slate-500')}>{value}</p>
-          </div>
-        ))}
-      </div>
-      {agentId && <Link href={`/agents/${agentId}`} className={cn('text-[11px] font-medium hover:underline', running ? 'text-violet-400' : 'text-violet-600')}>View agent details →</Link>}
-    </motion.div>
-  );
-}
-
 // ── Guardrails Panel ──────────────────────────────────────────────────────────
 type PanelTab = 'Guardrails' | 'HITL' | 'Insights';
 
@@ -892,18 +840,44 @@ export default function DashboardClient() {
   }, [feed, sessions, activeSessionId]);
 
   // Helper: convert raw requests into DisplayEntry[]
-  // HITL state is already embedded in request payload (payload.hitl), so we only
-  // use reqEntries — separate hitlEntries caused duplicates with different id prefixes.
+  // hitlAll contains decided (approved/denied) HITL entries — used to resolve
+  // feed entries that still have payload.hitl='pending' because the requests
+  // table is never patched when a decision is made (only hitl_requests is).
   const buildDisplayFeed = useCallback((
     requests: Array<{ id: string; agent_id: string; tool_name: string; status: string; severity: string | null; payload: Record<string,unknown>|null; created_at: string }>,
-    _hitlAll: HitlRequest[],
+    hitlAll: HitlRequest[],
   ): DisplayEntry[] => {
+    // For each decided HITL request, index by agent_id:tool_name:time-bucket (30s)
+    // so we can resolve stale payload.hitl='pending' entries in the feed.
+    const resolvedHitl = new Map<string, 'approved' | 'denied'>();
+    for (const h of hitlAll) {
+      if (h.status === 'approved' || h.status === 'denied') {
+        const bucket = Math.floor(new Date(h.created_at).getTime() / 30_000);
+        resolvedHitl.set(`${h.agent_id}:${h.tool_name}:${bucket}`, h.status);
+        // Also store without bucket so a single pending entry always resolves
+        resolvedHitl.set(`${h.agent_id}:${h.tool_name}`, h.status);
+      }
+    }
+
     return requests
       .map(r => {
-        const hitlDecision = hitlDecisionFromPayload(r.payload);
+        let hitlDecision = hitlDecisionFromPayload(r.payload);
+        // If the payload still says 'pending', check hitlAll for a real decision
+        if (hitlDecision === 'pending') {
+          const bucket = Math.floor(new Date(r.created_at).getTime() / 30_000);
+          const resolved =
+            resolvedHitl.get(`${r.agent_id}:${r.tool_name}:${bucket}`) ??
+            resolvedHitl.get(`${r.agent_id}:${r.tool_name}`);
+          if (resolved) hitlDecision = resolved;
+        }
+        let displayStatus: DisplayStatus;
+        if      (hitlDecision === 'approved') displayStatus = 'ALLOWED';
+        else if (hitlDecision === 'pending')  displayStatus = 'REVIEW';
+        else if (hitlDecision === 'denied')   displayStatus = 'BLOCKED';
+        else                                  displayStatus = r.status as DisplayStatus;
         return {
           id: r.id, agent_id: r.agent_id, tool_name: r.tool_name,
-          displayStatus: displayStatusForRequest(r.status, r.payload),
+          displayStatus,
           severity: r.severity, payload: r.payload, created_at: r.created_at,
           isHitl: Boolean(hitlDecision),
           hitlDecision,
@@ -1068,7 +1042,9 @@ export default function DashboardClient() {
   const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
     await fetch(`/api/hitl/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
     setHitlPending(prev => prev.filter(r => r.id !== id));
-  }, []);
+    // Immediately re-poll so the feed reflects the decision without waiting 2s
+    void pollFeed();
+  }, [pollFeed]);
 
   // Auto-scheduler: fires 2 agents on mount, then one at a time on random intervals.
   // Fallback watchdog triggers if nothing has run for >60s.
@@ -1281,14 +1257,6 @@ export default function DashboardClient() {
 
             {/* Right panel */}
             <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
-              <ProjectPanel
-                running={runStatus.running}
-                agentName={sessionAgentName ?? selectedAgent?.name ?? null}
-                agentId={runStatus.agent_id ?? selectedAgentId}
-                startedAt={runStatus.started_at ?? null}
-                sessionEventCount={sessionFeed.length}
-                sessionBlockedCount={sessionFeed.filter(e => e.displayStatus === 'BLOCKED').length}
-              />
               <div className="flex-1 min-h-0 flex flex-col">
                 <GuardrailsPanel agentId={selectedAgentId} insight={selectedAgent?.latestInsight} ffInsights={ffInsights} />
               </div>
