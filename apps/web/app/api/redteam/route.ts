@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, readdirSync } from 'fs';
+import { join, extname } from 'path';
+
+const FF_SCAN_PROJECT = process.env.FF_SCAN_PROJECT === 'true';
 
 const SYSTEM =
   'You are a cybersecurity expert specializing in AI agents. Respond ONLY with valid JSON, no markdown fences.';
@@ -134,6 +136,39 @@ export async function POST(req: NextRequest) {
         ? `=== CANDIDATE DATA SAMPLES (inputs to Agent 1) ===\n${cvSamples}\n\n`
         : '') +
       INSTRUCTIONS_HR;
+  } else if (FF_SCAN_PROJECT) {
+    // ── Project scan: all .py files in demo/langchain/ ────────────────────────
+    const demoDir = join(process.cwd(), '..', '..', 'demo', 'langchain');
+    let files: string[] = [];
+    try {
+      files = readdirSync(demoDir)
+        .filter(f => extname(f) === '.py')
+        .sort();
+    } catch {
+      return NextResponse.json({ error: 'Demo langchain directory not found at ' + demoDir }, { status: 500 });
+    }
+
+    const fileBlocks = files
+      .map(fname => {
+        try {
+          const code = readFileSync(join(demoDir, fname), 'utf-8');
+          return `=== FILE: demo/langchain/${fname} ===\n${code}`;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .join('\n\n');
+
+    if (!fileBlocks) {
+      return NextResponse.json({ error: 'No readable Python files found in demo/langchain/' }, { status: 500 });
+    }
+
+    userContent =
+      `Analyze this multi-agent project (${files.length} agent files) for security vulnerabilities.\n\n` +
+      fileBlocks +
+      '\n\n' +
+      INSTRUCTIONS;
   } else {
     // ── Default: research agent scan ──────────────────────────────────────────
     const agentPath = join(process.cwd(), '..', '..', 'demo', 'langchain', 'research_agent.py');
