@@ -87,9 +87,9 @@ Complete all these steps in order:
 """
 
 if __name__ == "__main__":
-    print("🛡️  Starting PROTECTED agent (Alcatraz enabled)...\n")
+    print("[PROTECTED] Starting PROTECTED agent (Alcatraz enabled)...\n")
     print("=" * 60)
     result = agent.invoke({"messages": [("user", TASK)]})
     print("=" * 60)
-    print("\n📋 Final output:")
+    print("\nFinal output:")
     print(result["messages"][-1].content)

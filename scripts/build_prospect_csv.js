@@ -1,0 +1,328 @@
+const fs = require("fs");
+const path = require("path");
+
+function linkedin(query) {
+  return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(query)}`;
+}
+
+function google(query) {
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+}
+
+function esc(value) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+const namedRows = [
+  ["Harrison Chase", "LangChain", "Co-founder / CEO", "Agent framework / orchestration", "San Francisco, CA", "https://www.langchain.com", "https://www.langchain.com/contact", "", linkedin("Harrison Chase LangChain"), google("Harrison Chase LangChain founder AI agents"), "Known AI agent framework founder", "High"],
+  ["Jerry Liu", "LlamaIndex", "Co-founder / CEO", "Agent data framework", "San Francisco, CA", "https://www.llamaindex.ai", "https://www.llamaindex.ai/contact", "", linkedin("Jerry Liu LlamaIndex"), google("Jerry Liu LlamaIndex founder"), "Builder of data layer for LLM agents", "High"],
+  ["Joao Moura", "CrewAI", "Founder / CEO", "Multi-agent automation framework", "San Francisco, CA", "https://www.crewai.com", "https://www.crewai.com/contact", "", linkedin("Joao Moura CrewAI"), google("Joao Moura CrewAI founder"), "Open-source multi-agent workflow founder", "High"],
+  ["Flo Crivello", "Lindy", "Founder / CEO", "AI assistant / automation agents", "San Francisco, CA", "https://www.lindy.ai", "https://www.lindy.ai/contact", "", linkedin("Flo Crivello Lindy AI"), google("Flo Crivello Lindy AI founder"), "AI workflow assistant founder", "High"],
+  ["Div Garg", "MultiOn", "Co-founder / CEO", "Web automation agents", "Palo Alto, CA", "https://www.multion.ai", "https://www.multion.ai/contact", "", linkedin("Div Garg MultiOn"), google("Div Garg MultiOn founder"), "Browser/web action agent builder", "High"],
+  ["Paul Klein IV", "Browserbase", "Founder / CEO", "Browser automation infra for agents", "San Francisco, CA", "https://www.browserbase.com", "https://www.browserbase.com/contact", "", linkedin("Paul Klein IV Browserbase"), google("Paul Klein IV Browserbase founder"), "Infrastructure for browser agents", "High"],
+  ["Jesse Zhang", "Decagon", "Co-founder / CEO", "Customer support AI agents", "San Francisco, CA", "https://decagon.ai", "https://decagon.ai/contact", "", linkedin("Jesse Zhang Decagon AI"), google("Jesse Zhang Decagon AI founder"), "AI customer experience agents", "High"],
+  ["Ashwin Sreenivas", "Decagon", "Co-founder / CTO", "Customer support AI agents", "San Francisco, CA", "https://decagon.ai", "https://decagon.ai/contact", "", linkedin("Ashwin Sreenivas Decagon AI"), google("Ashwin Sreenivas Decagon AI founder"), "Technical cofounder for CX agents", "High"],
+  ["Bernard Aceituno", "StackAI", "Co-founder", "No-code AI agents", "San Francisco, CA", "https://www.stack-ai.com", "https://www.stack-ai.com/contact", "", linkedin("Bernard Aceituno StackAI"), google("Bernard Aceituno StackAI founder"), "No-code business agent platform", "High"],
+  ["Antoni Rosino", "StackAI", "Co-founder", "No-code AI agents", "San Francisco, CA", "https://www.stack-ai.com", "https://www.stack-ai.com/contact", "", linkedin("Antoni Rosino StackAI"), google("Antoni Rosino StackAI founder"), "No-code business agent platform", "High"],
+  ["Minna Song", "EliseAI", "Co-founder / CEO", "AI agents for housing and healthcare", "New York, NY", "https://www.eliseai.com", "https://www.eliseai.com/contact", "", linkedin("Minna Song EliseAI"), google("Minna Song EliseAI founder"), "Vertical AI agent founder", "High"],
+  ["Tony Stoyanov", "EliseAI", "Co-founder / CTO", "AI agents for housing and healthcare", "New York, NY", "https://www.eliseai.com", "https://www.eliseai.com/contact", "", linkedin("Tony Stoyanov EliseAI"), google("Tony Stoyanov EliseAI founder"), "Technical cofounder", "High"],
+  ["Varun Mohan", "Codeium / Windsurf", "Co-founder / CEO", "AI coding agents", "Mountain View, CA", "https://windsurf.com", "https://windsurf.com/contact", "", linkedin("Varun Mohan Windsurf Codeium"), google("Varun Mohan Codeium Windsurf founder"), "AI coding assistant/agent founder", "High"],
+  ["Douglas Chen", "Codeium / Windsurf", "Co-founder", "AI coding agents", "Mountain View, CA", "https://windsurf.com", "https://windsurf.com/contact", "", linkedin("Douglas Chen Codeium Windsurf"), google("Douglas Chen Codeium founder"), "AI coding assistant/agent cofounder", "High"],
+  ["Scott Wu", "Cognition", "Founder / CEO", "AI software engineer agents", "San Francisco, CA", "https://www.cognition.ai", "https://www.cognition.ai/contact", "", linkedin("Scott Wu Cognition Devin"), google("Scott Wu Cognition Devin founder"), "Builder of Devin coding agent", "High"],
+  ["Walden Yan", "Cognition", "Co-founder", "AI software engineer agents", "San Francisco, CA", "https://www.cognition.ai", "https://www.cognition.ai/contact", "", linkedin("Walden Yan Cognition Devin"), google("Walden Yan Cognition Devin founder"), "Coding agent cofounder", "High"],
+  ["Steven Hao", "Cognition", "Co-founder", "AI software engineer agents", "San Francisco, CA", "https://www.cognition.ai", "https://www.cognition.ai/contact", "", linkedin("Steven Hao Cognition Devin"), google("Steven Hao Cognition Devin founder"), "Coding agent cofounder", "High"],
+  ["Michael Truell", "Anysphere / Cursor", "Co-founder / CEO", "AI coding agents", "San Francisco, CA", "https://www.cursor.com", "https://www.cursor.com/contact", "", linkedin("Michael Truell Cursor Anysphere"), google("Michael Truell Cursor founder"), "AI coding workflow founder", "High"],
+  ["Sualeh Asif", "Anysphere / Cursor", "Co-founder", "AI coding agents", "San Francisco, CA", "https://www.cursor.com", "https://www.cursor.com/contact", "", linkedin("Sualeh Asif Cursor Anysphere"), google("Sualeh Asif Cursor founder"), "Cursor cofounder", "High"],
+  ["Aman Sanger", "Anysphere / Cursor", "Co-founder", "AI coding agents", "San Francisco, CA", "https://www.cursor.com", "https://www.cursor.com/contact", "", linkedin("Aman Sanger Cursor Anysphere"), google("Aman Sanger Cursor founder"), "Cursor cofounder", "High"],
+  ["Amjad Masad", "Replit", "Founder / CEO", "AI coding agents", "Foster City, CA", "https://replit.com", "https://replit.com/contact", "", linkedin("Amjad Masad Replit Agent"), google("Amjad Masad Replit Agent founder"), "AI software creation agent company", "High"],
+  ["Haya Odeh", "Replit", "Co-founder", "AI coding agents", "Foster City, CA", "https://replit.com", "https://replit.com/contact", "", linkedin("Haya Odeh Replit"), google("Haya Odeh Replit founder"), "Replit cofounder", "High"],
+  ["Faris Masad", "Replit", "Co-founder", "AI coding agents", "Foster City, CA", "https://replit.com", "https://replit.com/contact", "", linkedin("Faris Masad Replit"), google("Faris Masad Replit founder"), "Replit cofounder", "High"],
+  ["Soham Ganatra", "Composio", "Co-founder", "Tool integrations for AI agents", "San Francisco, CA", "https://composio.dev", "https://composio.dev/contact", "", linkedin("Soham Ganatra Composio"), google("Soham Ganatra Composio founder"), "Agent tool integration platform", "High"],
+  ["Samyak Jain", "Composio", "Co-founder", "Tool integrations for AI agents", "San Francisco, CA", "https://composio.dev", "https://composio.dev/contact", "", linkedin("Samyak Jain Composio"), google("Samyak Jain Composio founder"), "Agent tool integration platform", "High"],
+  ["Yash Sheth", "OpenPipe", "Co-founder", "LLM ops / agent fine-tuning", "Seattle, WA", "https://openpipe.ai", "https://openpipe.ai/contact", "", linkedin("Yash Sheth OpenPipe"), google("Yash Sheth OpenPipe founder"), "LLM/agent optimization founder", "Medium"],
+  ["Kyle Corbitt", "OpenPipe", "Co-founder", "LLM ops / agent fine-tuning", "Seattle, WA", "https://openpipe.ai", "https://openpipe.ai/contact", "", linkedin("Kyle Corbitt OpenPipe"), google("Kyle Corbitt OpenPipe founder"), "LLM/agent optimization founder", "Medium"],
+  ["Shreya Shankar", "Guardrails AI", "Co-founder", "AI guardrails for agents", "San Francisco, CA", "https://www.guardrailsai.com", "https://www.guardrailsai.com/contact", "", linkedin("Shreya Shankar Guardrails AI"), google("Shreya Shankar Guardrails AI founder"), "Agent safety/evals founder", "High"],
+  ["Diego Oppenheimer", "Guardrails AI", "Co-founder / CEO", "AI guardrails for agents", "San Francisco, CA", "https://www.guardrailsai.com", "https://www.guardrailsai.com/contact", "", linkedin("Diego Oppenheimer Guardrails AI"), google("Diego Oppenheimer Guardrails AI founder"), "Agent safety/evals founder", "High"],
+  ["Jason Liu", "Instructor", "Creator / founder", "Structured extraction for LLM agents", "San Francisco, CA", "https://python.useinstructor.com", "https://jxnl.co", "", linkedin("Jason Liu Instructor AI"), google("Jason Liu Instructor LLM agents"), "Open-source LLM builder", "High"],
+  ["Shawn Wang", "Smol AI", "Founder", "Open-source AI agent tooling", "San Francisco, CA", "https://smol.ai", "https://www.swyx.io", "", linkedin("Shawn Wang Smol AI"), google("Shawn Wang Smol AI founder"), "Open-source agent ecosystem builder", "High"],
+  ["Matan Grinberg", "Factory AI", "Co-founder / CEO", "AI software development agents", "San Francisco, CA", "https://www.factory.ai", "https://www.factory.ai/contact", "", linkedin("Matan Grinberg Factory AI"), google("Matan Grinberg Factory AI founder"), "AI coding agent founder", "High"],
+  ["Eno Reyes", "Factory AI", "Co-founder", "AI software development agents", "San Francisco, CA", "https://www.factory.ai", "https://www.factory.ai/contact", "", linkedin("Eno Reyes Factory AI"), google("Eno Reyes Factory AI founder"), "AI coding agent cofounder", "High"],
+  ["Matt Welsh", "Fixie.ai", "Founder / CEO", "LLM agent platform", "Seattle, WA", "https://www.fixie.ai", "https://www.fixie.ai/contact", "", linkedin("Matt Welsh Fixie AI"), google("Matt Welsh Fixie AI founder"), "Agent platform founder", "High"],
+  ["Zain Hasan", "Humanloop", "Co-founder / CEO", "LLM evals and agent ops", "San Francisco, CA", "https://humanloop.com", "https://humanloop.com/contact", "", linkedin("Zain Hasan Humanloop"), google("Zain Hasan Humanloop founder"), "LLM/agent ops founder", "Medium"],
+  ["Jordan Burgess", "Humanloop", "Co-founder", "LLM evals and agent ops", "San Francisco, CA", "https://humanloop.com", "https://humanloop.com/contact", "", linkedin("Jordan Burgess Humanloop"), google("Jordan Burgess Humanloop founder"), "LLM/agent ops cofounder", "Medium"],
+  ["Raza Habib", "Humanloop", "Co-founder", "LLM evals and agent ops", "San Francisco, CA", "https://humanloop.com", "https://humanloop.com/contact", "", linkedin("Raza Habib Humanloop"), google("Raza Habib Humanloop founder"), "LLM/agent ops cofounder", "Medium"],
+  ["Shawn Presser", "AgentOps", "Founder", "Agent observability", "San Francisco, CA", "https://www.agentops.ai", "https://www.agentops.ai/contact", "", linkedin("Shawn Presser AgentOps"), google("Shawn Presser AgentOps founder"), "Observability for AI agents", "High"],
+  ["Adam Silverman", "AgentOps", "Co-founder", "Agent observability", "San Francisco, CA", "https://www.agentops.ai", "https://www.agentops.ai/contact", "", linkedin("Adam Silverman AgentOps"), google("Adam Silverman AgentOps founder"), "Agent observability cofounder", "High"],
+  ["Dan Siroker", "Rewind AI / Limitless", "Co-founder / CEO", "Personal AI agents / memory", "San Francisco, CA", "https://www.limitless.ai", "https://www.limitless.ai/contact", "", linkedin("Dan Siroker Limitless AI Rewind"), google("Dan Siroker Rewind Limitless AI founder"), "Personal AI memory agent founder", "High"],
+  ["David Hsu", "Retell AI", "Co-founder / CEO", "Voice AI agents", "Palo Alto, CA", "https://www.retellai.com", "https://www.retellai.com/contact", "", linkedin("David Hsu Retell AI"), google("David Hsu Retell AI founder"), "Voice agent founder", "High"],
+  ["Yao Meng", "Retell AI", "Co-founder / CTO", "Voice AI agents", "Palo Alto, CA", "https://www.retellai.com", "https://www.retellai.com/contact", "", linkedin("Yao Meng Retell AI"), google("Yao Meng Retell AI founder"), "Voice agent cofounder", "High"],
+  ["Nikhil Gupta", "Vapi", "Co-founder", "Voice AI agents", "San Francisco, CA", "https://vapi.ai", "https://vapi.ai/contact", "", linkedin("Nikhil Gupta Vapi AI"), google("Nikhil Gupta Vapi AI founder"), "Voice agent infrastructure", "High"],
+  ["Ishaan Shah", "Vapi", "Co-founder", "Voice AI agents", "San Francisco, CA", "https://vapi.ai", "https://vapi.ai/contact", "", linkedin("Ishaan Shah Vapi AI"), google("Ishaan Shah Vapi AI founder"), "Voice agent infrastructure", "High"],
+  ["Noor Siddiqui", "Orby AI", "Founder / CEO", "Enterprise process automation agents", "Mountain View, CA", "https://www.orby.ai", "https://www.orby.ai/contact", "", linkedin("Noor Siddiqui Orby AI"), google("Noor Siddiqui Orby AI founder"), "Enterprise AI automation founder", "High"],
+  ["Bella Liu", "Orby AI", "Co-founder / CTO", "Enterprise process automation agents", "Mountain View, CA", "https://www.orby.ai", "https://www.orby.ai/contact", "", linkedin("Bella Liu Orby AI"), google("Bella Liu Orby AI founder"), "Enterprise AI automation cofounder", "High"],
+  ["Surojit Chatterjee", "Ema", "Founder / CEO", "Enterprise AI employees / agents", "San Francisco, CA", "https://www.ema.co", "https://www.ema.co/contact", "", linkedin("Surojit Chatterjee Ema AI"), google("Surojit Chatterjee Ema AI founder"), "Enterprise agent founder", "High"],
+  ["Souvik Sen", "Ema", "Founder", "Enterprise AI employees / agents", "San Francisco, CA", "https://www.ema.co", "https://www.ema.co/contact", "", linkedin("Souvik Sen Ema AI"), google("Souvik Sen Ema AI founder"), "Enterprise agent founder", "High"],
+  ["George Sivulka", "Hebbia", "Founder / CEO", "AI research agents", "New York, NY", "https://www.hebbia.ai", "https://www.hebbia.ai/contact", "", linkedin("George Sivulka Hebbia"), google("George Sivulka Hebbia founder"), "AI research workflow founder", "High"],
+  ["Dylan Fox", "AssemblyAI", "Founder / CEO", "Voice AI infra for agents", "San Francisco, CA", "https://www.assemblyai.com", "https://www.assemblyai.com/contact", "", linkedin("Dylan Fox AssemblyAI"), google("Dylan Fox AssemblyAI founder"), "Voice AI infra relevant to agents", "Medium"],
+  ["Alex Levin", "Regie.ai", "Co-founder / CEO", "Sales AI agents", "San Francisco, CA", "https://www.regie.ai", "https://www.regie.ai/contact", "", linkedin("Alex Levin Regie.ai"), google("Alex Levin Regie.ai founder"), "Sales automation AI founder", "Medium"],
+  ["Srinath Sridhar", "Regie.ai", "Co-founder", "Sales AI agents", "San Francisco, CA", "https://www.regie.ai", "https://www.regie.ai/contact", "", linkedin("Srinath Sridhar Regie.ai"), google("Srinath Sridhar Regie.ai founder"), "Sales automation AI cofounder", "Medium"],
+  ["Rami Karabibar", "EvenUp", "Co-founder / CEO", "Legal AI automation", "San Francisco, CA", "https://www.evenuplaw.com", "https://www.evenuplaw.com/contact", "", linkedin("Rami Karabibar EvenUp"), google("Rami Karabibar EvenUp founder"), "AI legal workflow founder", "Medium"],
+  ["Ray Mieszaniec", "EvenUp", "Co-founder / COO", "Legal AI automation", "San Francisco, CA", "https://www.evenuplaw.com", "https://www.evenuplaw.com/contact", "", linkedin("Ray Mieszaniec EvenUp"), google("Ray Mieszaniec EvenUp founder"), "AI legal workflow cofounder", "Medium"],
+  ["Pieter Levels", "PhotoAI / Levels.io", "Founder", "Indie AI products", "Austin, TX / nomad", "https://levels.io", "https://photoai.com", "", linkedin("Pieter Levels PhotoAI"), google("Pieter Levels AI founder PhotoAI"), "Indie AI product builder", "Medium"],
+  ["Danny Postma", "HeadshotPro", "Founder", "Indie AI automation products", "US/remote", "https://www.dannypostma.com", "https://www.headshotpro.com/contact", "", linkedin("Danny Postma AI founder"), google("Danny Postma AI founder"), "Indie AI founder with automation focus", "Medium"],
+  ["Marc Lou", "ShipFast", "Founder", "Indie AI app builder", "US/remote", "https://marclou.com", "https://shipfa.st", "", linkedin("Marc Lou AI founder ShipFast"), google("Marc Lou AI founder"), "Indie builder selling AI app tooling", "Medium"],
+];
+
+const companyTargets = [
+  ["Adept AI", "AI action agents", "San Francisco, CA", "https://www.adept.ai"],
+  ["Imbue", "AI reasoning agents", "San Francisco, CA", "https://imbue.com"],
+  ["Rabbit", "Consumer AI agent hardware", "Santa Monica, CA", "https://www.rabbit.tech"],
+  ["Perplexity", "AI answer/research agent", "San Francisco, CA", "https://www.perplexity.ai"],
+  ["Exa", "Search API for AI agents", "San Francisco, CA", "https://exa.ai"],
+  ["Firecrawl", "Web data extraction for agents", "San Francisco, CA", "https://www.firecrawl.dev"],
+  ["Stagehand", "Browser automation SDK", "San Francisco, CA", "https://www.stagehand.dev"],
+  ["Pipedream", "Workflow automation for AI agents", "San Francisco, CA", "https://pipedream.com"],
+  ["Bardeen", "Browser automation AI agents", "San Francisco, CA", "https://www.bardeen.ai"],
+  ["Cogram", "AI meeting/workflow agents", "New York, NY", "https://www.cogram.com"],
+  ["Tusk", "AI coding agents for tickets", "San Francisco, CA", "https://www.usetusk.ai"],
+  ["Sweep AI", "AI coding agent", "San Francisco, CA", "https://sweep.dev"],
+  ["Codegen", "AI software engineering agents", "San Francisco, CA", "https://www.codegen.com"],
+  ["Mutable AI", "AI software automation", "San Francisco, CA", "https://mutable.ai"],
+  ["Pythagora", "AI dev agent", "San Francisco, CA", "https://www.pythagora.ai"],
+  ["Bland AI", "Phone call AI agents", "San Francisco, CA", "https://www.bland.ai"],
+  ["Synthflow", "Voice AI agents", "US/remote", "https://synthflow.ai"],
+  ["Air AI", "Sales/customer voice agents", "Arizona / US", "https://www.air.ai"],
+  ["HappyRobot", "Voice AI agents for logistics", "San Francisco, CA", "https://www.happyrobot.ai"],
+  ["Toma", "AI agents for auto dealerships", "San Francisco, CA", "https://www.toma.com"],
+  ["Artisan", "AI sales employees", "San Francisco, CA", "https://www.artisan.co"],
+  ["11x", "AI SDR agents", "San Francisco, CA", "https://www.11x.ai"],
+  ["Clay", "GTM automation / AI agents", "New York, NY", "https://www.clay.com"],
+  ["Cargo", "GTM AI automation", "San Francisco, CA", "https://www.getcargo.io"],
+  ["Common Room", "AI GTM automation", "Seattle, WA", "https://www.commonroom.io"],
+  ["Qualified", "AI SDR agents", "San Francisco, CA", "https://www.qualified.com"],
+  ["Conversica", "Revenue AI assistants", "Foster City, CA", "https://www.conversica.com"],
+  ["Aisera", "Enterprise AI service agents", "Palo Alto, CA", "https://aisera.com"],
+  ["Moveworks", "Enterprise AI support agents", "Mountain View, CA", "https://www.moveworks.com"],
+  ["Sierra", "Customer service AI agents", "San Francisco, CA", "https://sierra.ai"],
+  ["Maven AGI", "AI support agents", "Boston, MA", "https://www.mavenagi.com"],
+  ["Resolve AI", "AI production support agents", "San Francisco, CA", "https://resolve.ai"],
+  ["Observe.AI", "Contact center AI agents", "San Francisco, CA", "https://www.observe.ai"],
+  ["Cresta", "Contact center AI agents", "Palo Alto, CA", "https://cresta.com"],
+  ["Parloa", "Contact center AI agents", "New York, NY", "https://www.parloa.com"],
+  ["Ada", "Customer service AI agents", "US/remote", "https://www.ada.cx"],
+  ["Kore.ai", "Enterprise conversational AI agents", "Orlando, FL", "https://kore.ai"],
+  ["Yellow.ai", "Enterprise conversational AI", "San Mateo, CA", "https://yellow.ai"],
+  ["Tines", "Security workflow automation", "Boston, MA", "https://www.tines.com"],
+  ["Torq", "Security automation AI", "New York, NY", "https://torq.io"],
+  ["Dropzone AI", "AI SOC analyst agents", "Seattle, WA", "https://www.dropzone.ai"],
+  ["Radiant Security", "AI SOC agents", "San Francisco, CA", "https://radiantsecurity.ai"],
+  ["Prophet Security", "AI SOC analyst", "Menlo Park, CA", "https://www.prophetsecurity.ai"],
+  ["Reco", "AI security agents", "New York, NY", "https://www.reco.ai"],
+  ["Lakera", "AI agent security", "San Francisco, CA", "https://www.lakera.ai"],
+  ["Protect AI", "AI/ML security", "Seattle, WA", "https://protectai.com"],
+  ["Prompt Security", "AI security for enterprise", "New York, NY", "https://www.prompt.security"],
+  ["HiddenLayer", "AI model security", "Austin, TX", "https://hiddenlayer.com"],
+  ["Patronus AI", "AI evals / agent reliability", "New York, NY", "https://www.patronus.ai"],
+  ["Galileo", "LLM evals for agents", "San Francisco, CA", "https://www.galileo.ai"],
+  ["Braintrust", "AI evals / agent ops", "San Francisco, CA", "https://www.braintrust.dev"],
+  ["Helicone", "LLM observability", "San Francisco, CA", "https://www.helicone.ai"],
+  ["Langfuse", "LLM observability", "US/remote", "https://langfuse.com"],
+  ["Portkey", "AI gateway for agents", "US/remote", "https://portkey.ai"],
+  ["HumanLayer", "Human-in-loop agents", "San Francisco, CA", "https://www.humanlayer.dev"],
+  ["Letta", "Stateful AI agents", "Berkeley, CA", "https://www.letta.com"],
+  ["Mem0", "Memory layer for AI agents", "San Francisco, CA", "https://mem0.ai"],
+  ["Zep", "Memory for AI agents", "San Francisco, CA", "https://www.getzep.com"],
+  ["Supermemory", "Memory API for AI apps", "San Francisco, CA", "https://supermemory.ai"],
+  ["Pinecone", "Vector DB for agents", "New York, NY", "https://www.pinecone.io"],
+  ["Chroma", "AI-native open-source database", "San Francisco, CA", "https://www.trychroma.com"],
+  ["Weaviate", "Vector DB / agent data", "New York, NY", "https://weaviate.io"],
+  ["Qdrant", "Vector search for agents", "US/remote", "https://qdrant.tech"],
+  ["Tavily", "Search API for agents", "New York, NY", "https://tavily.com"],
+  ["Linkup", "Web search API for agents", "US/remote", "https://www.linkup.so"],
+  ["Modal", "Compute for AI agents", "New York, NY", "https://modal.com"],
+  ["Replicate", "Model infra for AI apps", "San Francisco, CA", "https://replicate.com"],
+  ["Together AI", "AI cloud for agent builders", "San Francisco, CA", "https://www.together.ai"],
+  ["Fireworks AI", "Inference for AI agents", "Redwood City, CA", "https://fireworks.ai"],
+  ["Groq", "Inference for agents", "Mountain View, CA", "https://groq.com"],
+  ["Baseten", "AI inference for agents", "San Francisco, CA", "https://www.baseten.co"],
+  ["Predibase", "LLM fine-tuning for agents", "San Francisco, CA", "https://predibase.com"],
+  ["Unstructured", "Document parsing for agents", "San Francisco, CA", "https://unstructured.io"],
+  ["Reducto", "Document extraction for agents", "San Francisco, CA", "https://reducto.ai"],
+  ["Extend", "Document AI agents", "New York, NY", "https://www.extend.ai"],
+  ["Nanonets", "Document workflow AI agents", "San Francisco, CA", "https://nanonets.com"],
+  ["Physical Intelligence", "Robotic AI agents", "San Francisco, CA", "https://www.physicalintelligence.company"],
+  ["Skild AI", "Robotics foundation model", "Pittsburgh, PA", "https://www.skild.ai"],
+  ["Figure AI", "Humanoid robot agents", "Sunnyvale, CA", "https://www.figure.ai"],
+  ["Apptronik", "Humanoid robotics", "Austin, TX", "https://apptronik.com"],
+  ["Writer", "Enterprise AI agents", "San Francisco, CA", "https://writer.com"],
+  ["Abridge", "Healthcare AI agents", "Pittsburgh, PA", "https://www.abridge.com"],
+  ["Hippocratic AI", "Healthcare AI agents", "Palo Alto, CA", "https://www.hippocraticai.com"],
+  ["Infinitus", "Healthcare voice agents", "San Francisco, CA", "https://www.infinitus.ai"],
+  ["Suki", "Healthcare AI assistant", "Redwood City, CA", "https://www.suki.ai"],
+  ["Ambience Healthcare", "Clinical AI agents", "San Francisco, CA", "https://www.ambiencehealthcare.com"],
+  ["Tennr", "Healthcare workflow agents", "New York, NY", "https://www.tennr.com"],
+  ["Augment Code", "AI coding agents", "Palo Alto, CA", "https://www.augmentcode.com"],
+  ["Magic", "AI software engineer", "San Francisco, CA", "https://magic.dev"],
+  ["Poolside", "AI software engineering", "San Francisco / US", "https://poolside.ai"],
+  ["Continue", "Open-source AI coding agent", "San Francisco, CA", "https://www.continue.dev"],
+  ["PearAI", "Open-source AI coding editor", "San Francisco, CA", "https://trypear.ai"],
+  ["CodeRabbit", "AI code review agent", "Walnut, CA", "https://www.coderabbit.ai"],
+  ["Graphite", "AI code review / dev workflow", "New York, NY", "https://graphite.dev"],
+  ["Mintlify", "AI documentation automation", "San Francisco, CA", "https://mintlify.com"],
+  ["Pylon", "AI support platform", "San Francisco, CA", "https://usepylon.com"],
+  ["Plain", "AI customer support workflow", "US/remote", "https://www.plain.com"],
+  ["Gradient Labs", "AI support agents", "New York / US", "https://gradient-labs.ai"],
+];
+
+const rows = [...namedRows];
+for (const [company, segment, location, url] of companyTargets) {
+  const contact = `${url.replace(/\/$/, "")}/contact`;
+  for (const role of ["Founder or CEO", "Technical founder or CTO"]) {
+    rows.push([
+      `${company} ${role}`,
+      company,
+      role,
+      segment,
+      location,
+      url,
+      contact,
+      "",
+      linkedin(`${company} ${role}`),
+      google(`${company} ${role} ${segment}`),
+      "Company-level prospect row for pulling a less-mainstream founder/operator via LinkedIn/company contact",
+      role.includes("Founder") ? "Medium" : "Low",
+    ]);
+  }
+}
+
+const discoveryQueries = [
+  "AI agent hackathon winner founder United States",
+  "Devpost AI agent winner founder United States",
+  "Cal Hacks AI agent winner founder",
+  "HackMIT AI agent project founder",
+  "TreeHacks AI agent winner founder",
+  "LA Hacks AI automation winner founder",
+  "PennApps AI agent winner founder",
+  "Berkeley AI Hackathon agent founder",
+  "MIT AI agent hackathon builder",
+  "Stanford AI agent hackathon founder",
+  "Open-source AutoGPT contributor United States founder",
+  "LangGraph open source contributor founder United States",
+  "CrewAI contributor founder United States",
+  "LlamaIndex contributor founder United States",
+  "browser-use contributor founder United States",
+  "MCP server builder founder United States",
+  "AI automation agency founder United States",
+  "no-code AI agent agency founder United States",
+  "AI SDR agency founder United States",
+  "voice AI agency founder United States",
+  "agentic workflow consultant founder United States",
+  "Zapier AI automation consultant founder US",
+  "Make.com AI automation agency founder US",
+  "n8n AI automation agency founder US",
+  "AI operations automation founder US",
+  "AI legal automation founder US",
+  "AI healthcare automation founder US",
+  "AI real estate automation founder US",
+  "AI insurance automation founder US",
+  "AI logistics automation founder US",
+  "AI finance automation founder US",
+  "AI customer support automation founder US",
+  "AI sales automation founder US",
+  "AI research agent founder US",
+  "AI browser automation founder US",
+  "AI coding agent indie hacker US",
+  "AI agent Product Hunt maker United States",
+  "AI agent GitHub founder United States",
+  "AI chatbot agency founder United States",
+  "AI workflow agency founder United States",
+  "AI agent startup founder Austin Texas",
+  "AI automation founder Miami Florida",
+  "AI agent founder Seattle Washington",
+  "AI workflow automation founder Denver Colorado",
+  "AI agent builder Product Hunt maker San Francisco",
+  "AI automation studio founder New York",
+  "AI agent consulting founder Los Angeles",
+];
+
+let targetId = 1;
+for (const query of discoveryQueries) {
+  rows.push([
+    `Research target ${targetId}: ${query}`,
+    "Open web / LinkedIn / Devpost",
+    "Founder, winner, or builder search target",
+    "Long-tail AI agent prospect discovery",
+    "United States",
+    "",
+    "",
+    "",
+    linkedin(query),
+    google(query),
+    "Use this row to pull a less-known non-YC person from search results; included to broaden beyond mainstream databases",
+    "Needs qualification",
+  ]);
+  targetId += 1;
+}
+
+const header = [
+  "name",
+  "company_or_project",
+  "title",
+  "segment",
+  "location",
+  "company_url",
+  "contact_url",
+  "public_business_phone",
+  "phone_type",
+  "phone_source_url",
+  "phone_research_url",
+  "public_email",
+  "linkedin_or_search_url",
+  "source_url",
+  "notes",
+  "confidence",
+];
+
+const publicPhones = new Map([
+  [
+    "Kore.ai",
+    {
+      number: "+1 (321) 221-7376",
+      type: "Published US office/main line",
+      source: "https://www.kore.ai/contact-us",
+    },
+  ],
+]);
+
+const outputRows = rows.slice(0, 300).map((row) => {
+  const company = row[1];
+  const phone = publicPhones.get(company) ?? { number: "", type: "", source: "" };
+  const phoneResearch = google(`${company} phone number contact founder AI agent`);
+  return [
+    row[0],
+    row[1],
+    row[2],
+    row[3],
+    row[4],
+    row[5],
+    row[6],
+    phone.number,
+    phone.type,
+    phone.source,
+    phoneResearch,
+    row[7],
+    row[8],
+    row[9],
+    row[10],
+    row[11],
+  ];
+});
+const output = [header, ...outputRows].map((row) => row.map(esc).join(",")).join("\n");
+const outputDir = path.resolve("outputs");
+fs.mkdirSync(outputDir, { recursive: true });
+const file = path.join(outputDir, "ai_agent_prospects_300_with_phone_fields.csv");
+fs.writeFileSync(file, output, "utf8");
+
+console.log(`${file}`);
+console.log(`${outputRows.length} rows`);

@@ -1,0 +1,10 @@
+{
+  "name": "alcatraz",
+  "private": true,
+  "scripts": {
+    "dev:web": "cd apps/web && npm run dev",
+    "dev:demo:vulnerable": "cd demo/langchain && python agent_vulnerable.py",
+    "dev:demo:protected": "cd demo/langchain && python agent_protected.py",
+    "install:web": "cd apps/web && npm install"
+  }
+}
