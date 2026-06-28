@@ -768,7 +768,11 @@ export default function DashboardClient() {
   const toggleFf = (key: string, setter: React.Dispatch<React.SetStateAction<boolean>>) => (v: boolean) => {
     localStorage.setItem(key, String(v)); setter(v);
   };
-  const prevRunning  = useRef(false);
+  const prevRunning   = useRef(false);
+  // Tracks session count without causing startAgent to be recreated; init from persisted sessions
+  const sessionCountRef = useRef<number>(
+    (() => { try { return (JSON.parse(sessionStorage.getItem('alc_sessions') ?? '[]') as Session[]).length; } catch { return 0; } })()
+  );
   // Epoch = timestamp of first Run click; only events after this are shown
   const sessionEpoch = useRef<string | null>(sessionStorage.getItem('alc_epoch'));
 
@@ -817,9 +821,10 @@ export default function DashboardClient() {
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, []);
 
-  // Keep sessionStorage in sync
+  // Keep sessionStorage in sync and sessionCountRef up to date
   useEffect(() => {
     sessionStorage.setItem('alc_sessions', JSON.stringify(sessions));
+    sessionCountRef.current = sessions.length;
   }, [sessions]);
 
   useEffect(() => {
@@ -961,13 +966,16 @@ export default function DashboardClient() {
         sessionEpoch.current = startedAt;
         sessionStorage.setItem('alc_epoch', startedAt);
       }
-      const newSession: Session = { id: crypto.randomUUID(), n: sessions.length + 1, startedAt };
+      // Use ref so this callback stays stable (no recreation on sessions change)
+      const n = sessionCountRef.current + 1;
+      sessionCountRef.current = n;
+      const newSession: Session = { id: crypto.randomUUID(), n, startedAt };
       setSessions(prev => [...prev, newSession]);
       setActiveSessionId('all'); // switch to "all" view when a new run starts
       setRunStatus(prev => ({ ...prev, running: true, started_at: startedAt }));
       prevRunning.current = true;
     } catch { /* agent server offline — scheduler will retry later */ }
-  }, [sessions.length]);
+  }, []); // stable — uses refs, not state
 
   const handleHitlDecide = useCallback(async (id: string, status: 'approved' | 'denied') => {
     await fetch(`/api/hitl/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
@@ -1023,7 +1031,7 @@ export default function DashboardClient() {
       clearInterval(watchdog);
       clearTimeout(nextTimer);
     };
-  }, [startAgent]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedAgent   = agentStats.find(a => a.id === selectedAgentId) ?? null;
   const sessionAgentName = runStatus.agent_id ? (agentNameMap[runStatus.agent_id] ?? null) : null;
