@@ -16,24 +16,14 @@ type ScanVuln = {
 type ScanRules = { DENY: string[]; REVIEW?: string[]; ALLOW: string[]; MAX_CALLS_PER_MIN: number };
 export type ScanResult = { vulnerabilities: ScanVuln[]; rules: ScanRules; risk_score: number };
 
-const FF_SCAN_PROJECT = process.env.NEXT_PUBLIC_FF_SCAN_PROJECT === 'true';
-
-const SCAN_PHASES = FF_SCAN_PROJECT
-  ? [
-      { label: 'Scanning project directory',            detail: 'Walking file tree, filtering noise' },
-      { label: 'Identifying agent files',               detail: 'LangChain · CrewAI · OpenAI · Anthropic imports + tool calls' },
-      { label: 'Mapping tool call graph',               detail: 'Tracing reachable tools and call chains' },
-      { label: 'Simulating adversarial inputs',         detail: 'Prompt injection, data exfiltration patterns' },
-      { label: 'Evaluating privilege escalation paths', detail: 'Lateral movement and over-permissioned tools' },
-      { label: 'Scoring risk and generating rules',     detail: 'Building DENY / REVIEW / ALLOW policy' },
-    ]
-  : [
-      { label: 'Reading agent source code',             detail: 'demo/langchain/research_agent.py' },
-      { label: 'Mapping tool call graph',               detail: 'Identifying reachable tools and call chains' },
-      { label: 'Simulating adversarial inputs',         detail: 'Prompt injection, data exfiltration patterns' },
-      { label: 'Evaluating privilege escalation paths', detail: 'Lateral movement and over-permissioned tools' },
-      { label: 'Scoring risk and generating rules',     detail: 'Building DENY / REVIEW / ALLOW policy' },
-    ];
+const SCAN_PHASES = [
+  { label: 'Scanning project directory',            detail: 'demo/langchain/ — walking file tree, filtering noise' },
+  { label: 'Identifying agent files',               detail: 'Found: research_agent.py · agent_vulnerable.py · devops_agent.py · finance_agent.py · support_agent.py' },
+  { label: 'Mapping tool call graph',               detail: 'bash_executor · file_reader · http_request · env_reader · web_search' },
+  { label: 'Simulating adversarial inputs',         detail: 'Prompt injection, data exfiltration patterns' },
+  { label: 'Evaluating privilege escalation paths', detail: 'Lateral movement and over-permissioned tools' },
+  { label: 'Scoring risk and generating rules',     detail: 'Building DENY / REVIEW / ALLOW policy' },
+];
 
 const SEV_COLOR: Record<string, string> = {
   critical: 'text-rose-700 bg-rose-50 border-rose-200',
@@ -90,9 +80,7 @@ export function StepScan({
       <div>
         <h2 className="text-xl font-semibold tracking-[-0.03em] text-slate-800 mb-1">Red Team Scan</h2>
         <p className="text-sm text-slate-500">
-          {FF_SCAN_PROJECT
-            ? 'Alcatraz scans your project directory, identifies agent files with tool calls, then attacks them to find exploitable vulnerabilities — and generates protection rules automatically.'
-            : 'An internal red team agent attacks your agent source code to find exploitable vulnerabilities — then generates the protection rules automatically.'}
+          Alcatraz scans your project directory, identifies agent files with tool calls, then attacks them to find exploitable vulnerabilities — and generates protection rules automatically.
         </p>
       </div>
 
@@ -203,7 +191,7 @@ export function StepScan({
           onClick={runScan}
           className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold bg-[linear-gradient(135deg,#6965f4_0%,#5b7dff_100%)] text-white shadow-[0_4px_14px_rgba(99,91,255,0.3)] hover:shadow-[0_6px_20px_rgba(99,91,255,0.4)] transition-all"
         >
-          {status === 'error' ? 'Retry Scan' : FF_SCAN_PROJECT ? 'Scan Project' : 'Run Red Team Scan'}
+          {status === 'error' ? 'Retry Scan' : 'Scan Project'}
         </button>
       )}
 
