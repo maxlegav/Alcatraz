@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Alcatraz — Web Dashboard
 
-## Getting Started
+The Next.js app that serves both the marketing site and the operator dashboard.
 
-First, run the development server:
+## What's in here
+
+| Route | Purpose |
+|---|---|
+| `/` | Landing page |
+| `/dashboard` | Real-time event feed — live tool call log, KPI cards, HITL panel, guardrails |
+| `/agents/[id]` | Per-agent history and AI-generated vulnerability analysis |
+| `/onboarding` | Step-by-step setup wizard (register agent, set rules, get API key) |
+| `/report` | Red team scan report viewer |
+
+### API routes
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/api/log` | POST | Receives tool call events from the Python SDK (Bearer auth) |
+| `/api/requests` | GET | Filtered event query for the dashboard feed |
+| `/api/hitl` | POST | Create a human-in-the-loop approval request |
+| `/api/hitl/[id]` | GET | Poll HITL request status (SDK polls every 2s) |
+| `/api/agents` | GET/POST | List and register agents |
+| `/api/agents/[id]` | GET/PATCH/DELETE | Agent detail and rule management |
+| `/api/guardrails` | GET/POST/DELETE | DENY/ALLOW/REVIEW rule CRUD |
+| `/api/redteam` | POST | Trigger a Claude vulnerability scan |
+| `/api/analyze` | POST | Generate AI insight summary for an agent |
+| `/api/api-keys` | GET/POST/DELETE | API key management |
+
+## Running locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev   # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy `.env.example` to `.env.local` and fill in:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+ANTHROPIC_API_KEY=
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Stack
 
-## Learn More
+- **Next.js 15** (App Router)
+- **TypeScript**
+- **Tailwind CSS v4** — PostCSS plugin, not v3 config syntax
+- **Supabase JS v2** — Postgres + Realtime subscriptions for the live feed
+- **Anthropic SDK** — `claude-sonnet-4-6` for red team scans and AI summaries
+- **Framer Motion** — dashboard animations
 
-To learn more about Next.js, take a look at the following resources:
+## Authentication
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Both `/api/log` and agent-facing routes require `Authorization: Bearer <api_key>`. The key is looked up in the `agents` table — `agent_id` is always derived server-side, never trusted from the request body.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Database tables (Supabase)
 
-## Deploy on Vercel
+| Table | Purpose |
+|---|---|
+| `agents` | Registered agents — `api_key`, `rules` (DENY/ALLOW/REVIEW lists) |
+| `requests` | Intercepted tool call events — `tool_name`, `status`, `severity`, `payload`. Realtime enabled. |
+| `hitl_requests` | Human-in-the-loop approval queue — `pending` → `approved` / `denied` |
+| `guardrails` | Per-agent rule overrides managed from the dashboard |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Migrations are in `supabase/migrations/` — run them in the Supabase SQL editor.
